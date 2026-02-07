@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0c1222">
+  <meta name="description" content="Voice to Sign — Traducteur tunisien vers français avec vidéos en langue des signes. Interface accessible.">
+  <title>Traducteur Tunisien → Français (dictionnaire + Groq)</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="mode-sombre">
+  <div class="page-content-wrap" id="pageContentWrap">
+  <div class="container">
+    <header class="header-modern">
+      <div class="header-glow"></div>
+      <div class="header-badge">🇹🇳 → 🇫🇷</div>
+      <h1>Voice to Sign</h1>
+      <p class="subtitle">Dialecte tunisien → Français → Langue des signes</p>
+    </header>
+    
+    <main class="main-two-columns">
+      <!-- Partie gauche : saisie et traduction (comme la capture) -->
+      <div class="main-left">
+        <div class="input-section card card--left">
+          <h3 class="panel-title"><i class="fas fa-keyboard"></i> Enter Text or Use Mic</h3>
+          <div class="input-group">
+            <label for="textInput" class="sr-only">Texte</label>
+            <textarea 
+              id="textInput" 
+              placeholder="Tapez en tunisien ou utilisez le micro…" 
+              rows="3"
+            ></textarea>
+          </div>
+          <div class="buttons-row buttons-row--submit">
+            <button class="btn btn-mic" onclick="startVoiceRecognition()" title="Micro">
+              <i class="fas fa-microphone"></i>
+            </button>
+            <button class="btn btn-primary btn-submit" onclick="processFullTranslation()">
+              Submit
+            </button>
+          </div>
+          <div class="text-output-labels">
+            <p class="output-label">The text that you entered is:</p>
+            <p id="originalText" class="output-text">—</p>
+            <p class="output-label">Key words in sentence:</p>
+            <div id="conceptsResult" class="concepts-text">—</div>
+          </div>
+          <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p><i class="fas fa-sync fa-spin"></i> Traduction en cours...</p>
+          </div>
+          <div id="voiceStatus" class="voice-status"></div>
+        </div>
+        <div class="results-section card card--left">
+          <h3><i class="fas fa-language"></i> Traduction</h3>
+          <div id="translationResult" class="lang-text translation-text">La traduction s'affichera ici</div>
+          <div class="translation-actions" id="translationActions">
+            <button type="button" class="btn-action copy-btn" onclick="copyTranslation()"><i class="fas fa-copy"></i></button>
+            <button type="button" class="btn-action speak-btn" onclick="speakTranslation()"><i class="fas fa-volume-up"></i></button>
+          </div>
+          <div class="result-item">
+            <div class="result-label">Signe en cours</div>
+            <div id="currentSign" class="sign-text">Prêt</div>
+          </div>
+        </div>
+        <div class="history-section card card--left">
+          <h3><i class="fas fa-history"></i> Historique</h3>
+          <ul id="historyList" class="history-list"></ul>
+        </div>
+      </div>
+      
+      <!-- Partie droite : lecteur vidéo — zone vidéo puis contrôles en bas -->
+      <div class="main-right">
+        <div class="video-section card card--right">
+          <h3 class="panel-title panel-title--yellow"><i class="fas fa-video"></i> Vidéo du signe</h3>
+          <div class="video-player-block">
+            <div class="scene-and-video-wrap" id="sceneAndVideoWrap">
+              <p id="videoPlaceholder" class="video-placeholder">Choisissez une vidéo ci-dessous ou lancez une traduction</p>
+              <div id="videoBrightnessWrap" class="video-brightness-wrap" style="display:none">
+                <video id="avatarZoneVideo" controls playsinline preload="metadata" aria-label="Vidéo du signe"></video>
+              </div>
+            </div>
+            <div class="video-controls-bar video-controls-bar--bottom">
+              <button type="button" class="btn btn-play-pause" id="avatarPlayPauseBtn" onclick="toggleAvatarPlayPause()" aria-label="Lecture / Pause">
+                <i class="fas fa-play" id="avatarPlayPauseIcon" aria-hidden="true"></i>
+                <span id="avatarPlayPauseLabel">Play</span>
+              </button>
+              <div class="video-control-item">
+                <label for="videoRepeatSelect" class="video-control-label"><i class="fas fa-redo-alt"></i> Répéter</label>
+                <select id="videoRepeatSelect" onchange="applyVideoRepeat(this.value)" title="Répéter la vidéo" aria-label="Répéter la vidéo">
+                  <option value="none">Non</option>
+                  <option value="once">Une fois</option>
+                  <option value="loop">Boucle</option>
+                </select>
+              </div>
+              <div class="video-control-item">
+                <label for="videoSpeedSelect" class="video-control-label"><i class="fas fa-tachometer-alt"></i> Vitesse</label>
+                <select id="videoSpeedSelect" onchange="applyVideoSpeed(this.value)" title="Vitesse de lecture" aria-label="Vitesse de lecture">
+                  <option value="0.5">0.5×</option>
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="1.75">1.75×</option>
+                  <option value="2">2×</option>
+                </select>
+              </div>
+              <div class="video-control-item video-control-brightness">
+                <label for="videoBrightnessRange" class="video-control-label"><i class="fas fa-sun"></i> Luminosité</label>
+                <div class="video-brightness-input-wrap">
+                  <input type="range" id="videoBrightnessRange" min="0.3" max="2" step="0.1" value="1" oninput="applyVideoBrightness(this.value)" title="Luminosité" aria-label="Luminosité">
+                  <span id="videoBrightnessValue" class="video-control-value" aria-live="polite">100%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="animations-all-section">
+            <h4 class="animations-all-title"><i class="fas fa-list"></i> Toutes les vidéos (animations)</h4>
+            <div id="animationsVideoList" class="animations-video-grid"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer>
+      <div class="footer-content">
+        <div class="tech-info">
+          <h4><i class="fas fa-microchip"></i> Technologies utilisées</h4>
+          <p>Dictionnaire tunisien • Groq • Three.js • Web Speech API</p>
+        </div>
+        
+        <div class="instructions">
+          <h4><i class="fas fa-lightbulb"></i> Instructions</h4>
+          <p>1. Tapez ou parlez en dialecte tunisien</p>
+          <p>2. Dictionnaire ou Groq traduira en français</p>
+          <p>3. L'avatar animera les concepts clés</p>
+        </div>
+        
+        <div class="api-info">
+          <h4><i class="fas fa-key"></i> Configuration API</h4>
+          <p>Clé Groq dans app.js (dictionnaire dans dictionary.js)</p>
+          <small>Groq : console.groq.com</small>
+        </div>
+      </div>
+      
+      <div class="copyright">
+        <p>© 2024 Traducteur Tunisien-Français • Dictionnaire + Groq</p>
+      </div>
+    </footer>
+  </div>
+  </div>
+
+  <!-- Bouton Paramètres fixe sur l'écran (toujours visible) -->
+  <button type="button" class="settings-fab" id="settingsFab" onclick="toggleSettingsPanel()" aria-label="Paramètres d'affichage" title="Paramètres">
+    <i class="fas fa-cog" aria-hidden="true"></i>
+  </button>
+  <div class="settings-panel" id="settingsPanel" aria-hidden="true">
+    <div class="settings-panel-header">
+      <h3><i class="fas fa-sliders-h"></i> Affichage</h3>
+      <button type="button" class="settings-close" onclick="toggleSettingsPanel()" aria-label="Fermer"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="settings-panel-body">
+      <div class="settings-group">
+        <label for="displayModeSelect" class="settings-label"><i class="fas fa-moon"></i> Mode d'affichage</label>
+        <select id="displayModeSelect" onchange="applyDisplayMode(this.value)" aria-label="Mode d'affichage">
+          <option value="sombre">Mode sombre</option>
+          <option value="nuit">Mode nuit</option>
+          <option value="clair">Mode clair</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label for="contrastRange" class="settings-label"><i class="fas fa-adjust"></i> Contraste</label>
+        <div class="settings-range-wrap">
+          <input type="range" id="contrastRange" min="1" max="1.5" step="0.05" value="1" oninput="applyPageContrast(this.value)" aria-label="Contraste de la page">
+          <span id="contrastValue" class="settings-value">100%</span>
+        </div>
+      </div>
+      <div class="settings-group">
+        <label class="settings-label"><i class="fas fa-palette"></i> Thème de couleurs</label>
+        <div class="settings-themes">
+          <button type="button" class="settings-theme-btn active" data-theme="default" onclick="applyTheme('default')" aria-pressed="true">Par défaut</button>
+          <button type="button" class="settings-theme-btn" data-theme="blue" onclick="applyTheme('blue')" aria-pressed="false">Bleu</button>
+          <button type="button" class="settings-theme-btn" data-theme="purple" onclick="applyTheme('purple')" aria-pressed="false">Violet</button>
+          <button type="button" class="settings-theme-btn" data-theme="orange" onclick="applyTheme('orange')" aria-pressed="false">Orange</button>
+          <button type="button" class="settings-theme-btn" data-theme="green" onclick="applyTheme('green')" aria-pressed="false">Vert</button>
+        </div>
+      </div>
+      <div class="settings-group">
+        <label for="fontSizeSelect" class="settings-label"><i class="fas fa-text-height"></i> Taille du texte</label>
+        <select id="fontSizeSelect" onchange="applyFontSize(this.value)" aria-label="Taille du texte">
+          <option value="100">Normale</option>
+          <option value="110">Grande</option>
+          <option value="125">Très grande</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="settings-backdrop" id="settingsBackdrop" onclick="toggleSettingsPanel()" aria-hidden="true"></div>
+
+  <!-- Three.js 0.128 inclut encore examples/js (GLTFLoader UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- Dictionnaire tunisien → français -->
+  <script src="dictionary.js"></script>
+  <!-- Application -->
+  <script src="app.js"></script>
+</body>
+</html>

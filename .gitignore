@@ -1,0 +1,88 @@
+# ==============================
+# Python
+# ==============================
+venv/
+.venv/
+env/
+translate/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==============================
+# Node (avatar-react, etc.)
+# ==============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# ==============================
+# Environnement / secrets
+# ==============================
+.env
+.env.local
+.env.*.local
+*.pem
+
+# ==============================
+# IDE / éditeurs
+# ==============================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==============================
+# Logs et temporaires
+# ==============================
+*.log
+*.tmp
+*.temp
+.cache/
+
+# ==============================
+# Archives (optionnel)
+# ==============================
+*.zip
+*.tar.gz
+*.rar
+
+# ==============================
+# Optionnel : gros médias (décommenter si dépôt trop lourd)
+# ==============================
+# animations/
+# animations_no_bg/
+# avatar/*.glb
+# DICTIONNAIRE MÉDICAL EN LANGUE DES SIGNES TUNISIENNE _AVST_/

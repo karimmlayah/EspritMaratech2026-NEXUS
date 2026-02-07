@@ -1,0 +1,137 @@
+dictionnaire_tunisien = {
+    # Parties du corps
+    "bouche": "فم",  # foum
+    "dents": "أسنان",  # asnan
+    "coeur": "قلب",  # galb
+    "yeux": "عيون",  # 3youne
+    "nombril": "سرة",  # sorra
+    "jambe": "رجل",  # rijel
+    "aisselle": "ابط",  # bet
+    "fesses": "مؤخرة",  # mo2akhra
+    "main": "يد",  # yedd
+    "taille": "خصر",  # khesr
+    "gorge": "حنجرة",  # hanjra
+    "nez": "منخار",  # mankhar
+    "oreilles": "ودان",  # wedan
+    "doigts": "أصابع",  # asaabe3
+    "nuque": "رقبة",  # ra9ba
+    "langue": "لسان",  # lessan
+    "bras": "ذراع",  # dhra3
+    "cerveau": "مخ",  # mokh
+    "ventre": "بطن",  # batn
+    "cou": "رقبة",  # ra9ba
+    "cheveux": "شعر",  # cha3r
+    "sourcils": "حواجب",  # hawajeb
+    "visage": "وجه",  # wejh
+    "tête": "راس",  # ras
+    "dos": "ظهر",  # dhar
+    "cuisse": "فخذ",  # fkhadh
+    "poitrine": "صدر",  # sadr
+    "poumons": "رئة",  # ra2a
+    "foie": "كبد",  # kabd
+    "intestin": "مصران",  # msrane
+    "estomac": "معدة",  # ma3da
+
+    # Symptômes & maladies
+    "douleur": "وجع",  # waja3
+    "vertige": "دوار",  # dwar
+    "fatigué": "تعبان",  # ta3bane
+    "grippe": "أنفلونزا",  # anflounza
+    "stress": "توتر",  # tawater
+    "diarrhée": "إسهال",  # ishal
+    "fièvre": "حرارة",  # 7arara
+    "dépression": "اكتئاب",  # iktieb
+    "cancer": "سرطان",  # saratan
+    "diabète": "سكري",  # soukri
+    "allergie": "حساسية",  # 7assasiya
+    "brûlure d'estomac": "حرقة",  # 7ar9a
+    "vomissement": "تقيؤ",  # tqi2
+    "évanouissement": "غشي",  # ghachi
+    "en pleine forme": "بخير",  # bkhir
+
+    # Termes médicaux
+    "analyse": "تحليل",  # tahlil
+    "thyroïde": "غدة درقية",  # ghadda dara9iya
+    "ordonnance médical": "وصفة طبية",  # wasfa tibiya
+    "gel hydroalcoolique": "جل كحولي",  # jel kou7ouli
+    "gros intestin": "قولون",  # 9ouloun
+    "intestin grêle": "أمعاء دقيقة",  # am3a da9i9a
+    "COVID-19": "كورونا",  # korona
+    "sida": "إيدز",  # idz
+    "rougeole": "حصبة",  # 7asba
+    "vaccin": "تلقيح",  # talki7
+    "implant cochléaire": "سماعة داخلية",  # sama3a dakhliya
+    "tensiomètre": "جهاز ضغط",  # jehaz daghet
+    "thermomètre": "ميزان حرارة",  # mizan 7arara
+    "tomodensitométrie": "سكانير",  # scanner
+    "échographie": "تصوير",  # taswir
+    "bandage": "رباط",  # rebat
+    "béquille": "عكازة",  # 3kaza
+    "fauteuil roulant": "كرسي متحرك",  # korsi met7arrek
+    "gants médicaux": "قفازات طبية",  # 9fazat tibiya
+    "masque médical": "كمامة",  # kamama
+    "masque à oxygène": "قناع أكسجين",  # 9ena3 oksijine
+
+    # Personnel & lieux
+    "médecin": "دكتور",  # doktor
+    "patient": "مريض",  # mridh
+    "hôpital": "مستشفى",  # mustachfa
+    "pharmacie": "صيدلية",  # saidaliya
+    "infirmier": "ممرض",  # mamarredh
+
+    # Questions courantes
+    "où avez-vous mal": "وين يوجعك",  # wiene youja3ek
+    "date de naissance": "تاريخ الميلاد",  # tarikh el milad
+    "prénom et nom": "الاسم واللقب",  # el isem w el la9ab
+    "quand": "وقتاش",  # waqtash
+    "comment": "كيفاش",  # kifech
+    "pourquoi": "علاش",  # 3lach
+
+    # États
+    "positif": "إيجابي",  # ijiyebi
+    "négatif": "سلبي",  # salbi
+    "attention": "انتباه",  # intibah
+    "urgence": "طارئ",  # tari2
+
+    # Autres
+    "sourd": "أصم",  # asamm
+    "malentendant": "ضعيف السمع",  # d3if es-same3
+    "handicap": "إعاقة",  # i3a9a
+    "interprète": "مترجم",  # motarjem
+    "langue des signes": "لغة الإشارة",  # loghet el ichara
+    "santé": "صحة",  # se77a
+    "CIN": "بطاقة تعريف",  # bita9et ta3rif
+    "problèmes de santé": "مشاكل صحية",  # mashakel se77iya
+    "information": "معلومة",  # ma3louma
+    "prévention": "وقاية",  # wi9aya
+    "solution": "حل",  # 7all
+    "résultat": "نتيجة",  # nati9a
+    "évaluation": "تقييم",  # takyim
+    "responsabilité": "مسؤولية",  # mas2ouliya
+    "relation sexuelle": "علاقة جنسية",  # 3ala9a jensiya
+
+    # Salutations
+    "salut ça va": "آهلا بيك، كيفاش",  # ahla bik, kifech
+    "bonjour": "صباح الخير",  # sabah el khir
+    "merci": "شكرا",  # choukran
+    "au revoir": "بسلامة",  # bisslama
+
+    # Phrases utiles / dialogues médecin-patient
+    "Où avez-vous mal?": "وين يوجعك؟",  # wiene youja3ek
+    "Depuis quand?": "من وقتاش؟",  # men waqtash
+    "Avez-vous de la fièvre?": "عندك حرارة؟",  # 3andek 7arara
+    "Prenez-vous des médicaments?": "تاخو دوا؟",  # takhou dawa
+    "J'ai mal à la tête": "عندي وجع في الراس",  # 3andi waja3 fi rase
+    "J'ai mal au ventre": "عندي وجع في البطن",  # 3andi waja3 fi el batn
+    "Je tousse": "نسعل",  # nsaa3l
+    "J'ai de la fièvre": "عندي حرارة",  # 3andi 7arara
+    "Je suis fatigué": "تعبان",  # ta3bane
+    "Je ne peux pas bouger": "ما نجمش نتحرك",  # ma nejmch net7arek
+    "Appelez une ambulance": "نادي على الإسعاف",  # nadi 3ala el is3af
+    "C'est urgent": "حاجة مستعجلة",  # 7aja mosta3jla
+    "Aidez-moi": "ساعدوني",  # sa3edouni
+    "Où est l'hôpital?": "وين المستشفى؟",  # wein el mustachfa
+    "Je veux des médicaments": "نحب دوا",  # n7eb dawa
+    "J'ai une ordonnance": "عندي وصفة",  # 3andi wasfa
+    "Pour la douleur": "للوجع",  # lil waja3
+}

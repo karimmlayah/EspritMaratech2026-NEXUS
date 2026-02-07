@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice-To-Sign (AVST) — Dialecte tunisien → LST</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <header class="header">
+    <h1>Voice-To-Sign (AVST)</h1>
+    <p class="tagline">Dialecte tunisien → Langue des signes tunisienne</p>
+    <p class="instructions">
+      Parlez ou écrivez en <strong>tunisien</strong>. Le système comprend l’intention (LLM ou dictionnaire), la convertit en <strong>concepts français</strong>, puis joue les <strong>signes LST</strong> sur l’avatar.
+    </p>
+  </header>
+
+  <section class="controls">
+    <label for="textInput" class="sr-only">Phrase en dialecte tunisien</label>
+    <input
+      type="text"
+      id="textInput"
+      placeholder="Ex: falsa okhra nheb nemchi lel sbitar"
+      aria-describedby="result"
+    >
+    <div class="buttons">
+      <button type="button" onclick="translate()" id="btnTranslate">Traduire</button>
+      <button type="button" onclick="startVoice()" id="btnSpeak">🎤 Parler</button>
+      <button type="button" onclick="runTest()" id="btnTest">🧪 Tester</button>
+    </div>
+  </section>
+
+  <div id="result" class="result" role="status" aria-live="polite"></div>
+  <p class="current-sign-label">Signe en cours :</p>
+  <div id="currentSign" class="current-sign" aria-live="polite"></div>
+
+  <div id="scene" class="scene" role="img" aria-label="Avatar LST">
+    <span id="scene-placeholder">Chargement…</span>
+  </div>
+
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>

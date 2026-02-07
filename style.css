@@ -1,0 +1,191 @@
+/* ============================================
+   Voice-To-Sign (AVST) — Styles MVP
+   Hackathon 42h — Association Voix du Sourd de Tunisie
+   ============================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  text-align: center;
+  background: #f0f2f5;
+  margin: 0;
+  padding: 20px;
+  color: #1a1a1a;
+}
+
+/* Accessibilité : libellés visuellement cachés mais lus par les lecteurs d'écran */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* En-tête */
+.header {
+  margin-bottom: 24px;
+}
+.header h1 {
+  margin: 0 0 8px 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+.tagline {
+  margin: 0;
+  font-size: 1rem;
+  color: #555;
+}
+.instructions {
+  margin: 12px auto 0;
+  max-width: 520px;
+  font-size: 0.9rem;
+  color: #444;
+  line-height: 1.5;
+}
+.instructions strong {
+  color: #0d6efd;
+}
+
+/* Zone de contrôle : input + boutons */
+.controls {
+  max-width: 480px;
+  margin: 0 auto 16px;
+}
+.controls input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.controls input:focus {
+  outline: none;
+  border-color: #0d6efd;
+}
+.buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.buttons button {
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #0d6efd;
+  color: #fff;
+  font-weight: 500;
+}
+.buttons button:hover {
+  background: #0b5ed7;
+}
+.buttons button:focus {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+}
+#btnSpeak {
+  background: #198754;
+}
+#btnSpeak:hover {
+  background: #157347;
+}
+#btnTest {
+  background: #6c757d;
+}
+#btnTest:hover {
+  background: #5a6268;
+}
+
+/* Bloc résultat (signes reconnus) */
+.result {
+  max-width: 560px;
+  margin: 0 auto 8px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 1.05rem;
+  min-height: 24px;
+}
+.result-ok {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+.result-empty {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+.result-loading {
+  background: #cce5ff;
+  color: #004085;
+  border: 1px solid #b8daff;
+}
+
+/* Signe en cours (pendant la lecture séquentielle) */
+.current-sign-label {
+  margin: 8px 0 2px;
+  font-size: 0.9rem;
+  color: #666;
+}
+.current-sign {
+  min-height: 32px;
+  margin-bottom: 8px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #0d6efd;
+}
+.current-sign.active {
+  animation: pulse 0.8s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% { opacity: 0.7; }
+}
+
+/* Scène 3D (avatar) */
+.scene {
+  width: 100%;
+  max-width: 800px;
+  height: 400px;
+  margin: 0 auto;
+  background: #2a2a2a;
+  border-radius: 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.scene canvas {
+  display: block;
+  border-radius: 12px;
+}
+#scene-placeholder,
+.scene-message {
+  position: absolute;
+  padding: 16px 24px;
+  color: #fff;
+  text-align: center;
+  z-index: 10;
+}
+#scene-placeholder {
+  background: transparent;
+}
+.scene-message {
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: 8px;
+  max-width: 90%;
+}
+.scene-message-error {
+  background: rgba(180, 50, 50, 0.9);
+}
