@@ -1,6 +1,7 @@
 # ==============================
 # Python
 # ==============================
+translate/tmp_transcribe/
 venv/
 .venv/
 env/

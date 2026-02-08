@@ -14,8 +14,24 @@ from bidi.algorithm import get_display
 from PIL import ImageFont
 from PIL import Image
 from PIL import ImageDraw
-import tensorflow as tf 
-model = tf.keras.models.load_model('models/asl_model.h5', compile=False)
+import tensorflow as tf
+
+def _build_asl_model():
+    k = tf.keras
+    return k.Sequential([
+        k.layers.Input(shape=(64, 64, 3)),
+        k.layers.Conv2D(32, (3, 3), activation='relu', name='conv2d_6'),
+        k.layers.MaxPooling2D((2, 2), name='max_pooling2d_4'),
+        k.layers.Conv2D(64, (3, 3), activation='relu', name='conv2d_7'),
+        k.layers.MaxPooling2D((2, 2), name='max_pooling2d_5'),
+        k.layers.Conv2D(64, (3, 3), activation='relu', name='conv2d_8'),
+        k.layers.Flatten(name='flatten_2'),
+        k.layers.Dense(64, activation='relu', name='dense_4'),
+        k.layers.Dense(32, activation='softmax', name='dense_5'),
+    ])
+
+model = _build_asl_model()
+model.load_weights('models/asl_model.h5', by_name=True)
 
 def process_image(img):
     img = cv2.resize(img, (64, 64))

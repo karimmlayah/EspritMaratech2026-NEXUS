@@ -13,27 +13,34 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="mode-sombre">
+  <a href="#panelTraduction" class="skip-link">Aller au contenu principal</a>
   <div class="page-content-wrap" id="pageContentWrap">
   <div class="container">
     <header class="header-modern">
       <div class="header-glow"></div>
-      <div class="header-badge">🇹🇳 → 🇫🇷</div>
       <h1>Voice to Sign</h1>
       <p class="subtitle">Dialecte tunisien → Langue des signes</p>
       <nav class="main-tabs" role="tablist" aria-label="Sections principales">
         <button type="button" class="main-tab active" role="tab" id="tabTraduction" aria-selected="true" aria-controls="panelTraduction" onclick="switchMainTab('traduction')" title="Traduction (Alt+1)">
           <i class="fas fa-language"></i> Traduction
         </button>
-        <button type="button" class="main-tab" role="tab" id="tabDetection" aria-selected="false" aria-controls="panelDetection" onclick="switchMainTab('detection')" title="Détection signe vidéo (Alt+2)">
-          <i class="fas fa-hand-paper"></i> Détection signe (vidéo)
+        <button type="button" class="main-tab" role="tab" id="tabDetection" aria-selected="false" aria-controls="panelDetection" onclick="switchMainTab('detection')" title="Texte to caractère (Alt+2)">
+          <i class="fas fa-font"></i> Texte to caractère
         </button>
-        <button type="button" class="main-tab" role="tab" id="tabRealtime" aria-selected="false" aria-controls="panelRealtime" onclick="switchMainTab('realtime')" title="Détection en direct (Alt+3)">
-          <i class="fas fa-video"></i> Détection en direct (caméra)
+        <button type="button" class="main-tab" role="tab" id="tabASL" aria-selected="false" aria-controls="panelASL" onclick="switchMainTab('asl')" title="Sign-to-Text (Alt+3)">
+          <i class="fas fa-hand-sparkles"></i> Sign-to-Text 
+        </button>
+        <button type="button" class="main-tab" role="tab" id="tabImageText" aria-selected="false" aria-controls="panelImageText" onclick="switchMainTab('imageText')" title="Image → Texte (Alt+4)">
+          <i class="fas fa-image"></i> Image → Texte
+        </button>
+        <button type="button" class="main-tab" role="tab" id="tabVideoSubs" aria-selected="false" aria-controls="panelVideoSubs" onclick="switchMainTab('videoSubs')" title="Vidéo → Sous-titres (Alt+5)">
+          <i class="fas fa-closed-captioning"></i> Vidéo → Sous-titres
         </button>
       </nav>
     </header>
     
     <main class="main-two-columns" id="panelTraduction" role="tabpanel" aria-labelledby="tabTraduction">
+      <h2 class="sr-only">Traduction</h2>
       <!-- Partie gauche : saisie et traduction (comme la capture) -->
       <div class="main-left">
         <div class="input-section card card--left">
@@ -47,16 +54,17 @@
             ></textarea>
           </div>
           <div class="buttons-row buttons-row--submit">
-            <div class="voice-control-group">
-              <button class="btn btn-mic" id="btnMic" onclick="startVoiceRecognition()" title="Micro — Parler en tunisien (Alt+M)">
-                <i class="fas fa-microphone" id="btnMicIcon"></i>
+            <div class="voice-control-group" id="voiceControlGroup">
+              <button class="btn btn-mic" id="btnMic" onclick="startVoiceRecognition()" title="Micro — Parler en tunisien (Alt+M)" aria-label="Démarrer le micro pour parler en tunisien">
+                <i class="fas fa-microphone" id="btnMicIcon" aria-hidden="true"></i>
               </button>
+              <span id="voiceListeningHint" class="voice-listening-hint" aria-live="polite" aria-hidden="true">Écoute…</span>
               <span id="voiceChrono" class="voice-chrono" aria-live="polite">0:00</span>
             </div>
-            <button class="btn btn-outline btn-clear-voice" onclick="clearVoiceInput()" title="Vider le texte saisi">
-              <i class="fas fa-eraser"></i> Vider
+            <button class="btn btn-outline btn-clear-voice" onclick="clearVoiceInput()" title="Vider le texte saisi" aria-label="Vider le texte saisi">
+              <i class="fas fa-eraser" aria-hidden="true"></i> Vider
             </button>
-            <button class="btn btn-primary btn-submit" onclick="processFullTranslation()">
+            <button class="btn btn-primary btn-submit" onclick="processFullTranslation()" aria-label="Lancer la traduction">
               Submit
             </button>
           </div>
@@ -76,8 +84,8 @@
           <h3><i class="fas fa-language"></i> Traduction</h3>
           <div id="translationResult" class="lang-text translation-text">La traduction s'affichera ici</div>
           <div class="translation-actions" id="translationActions">
-            <button type="button" class="btn-action copy-btn" onclick="copyTranslation()"><i class="fas fa-copy"></i></button>
-            <button type="button" class="btn-action speak-btn" onclick="speakTranslation()"><i class="fas fa-volume-up"></i></button>
+            <button type="button" class="btn-action copy-btn" onclick="copyTranslation()" aria-label="Copier la traduction"><i class="fas fa-copy" aria-hidden="true"></i></button>
+            <button type="button" class="btn-action speak-btn" onclick="speakTranslation()" aria-label="Lire la traduction à voix haute"><i class="fas fa-volume-up" aria-hidden="true"></i></button>
           </div>
           <div class="result-item">
             <div class="result-label">Signe en cours</div>
@@ -102,18 +110,10 @@
               </div>
             </div>
             <div class="video-controls-bar video-controls-bar--bottom">
-              <button type="button" class="btn btn-play-pause" id="avatarPlayPauseBtn" onclick="toggleAvatarPlayPause()" aria-label="Lecture / Pause">
+              <button type="button" class="btn btn-play-pause" id="avatarPlayPauseBtn" onclick="toggleAvatarPlayPause()" aria-label="Lecture ou pause de la vidéo du signe">
                 <i class="fas fa-play" id="avatarPlayPauseIcon" aria-hidden="true"></i>
                 <span id="avatarPlayPauseLabel">Play</span>
               </button>
-              <div class="video-control-item">
-                <label for="videoRepeatSelect" class="video-control-label"><i class="fas fa-redo-alt"></i> Répéter</label>
-                <select id="videoRepeatSelect" onchange="applyVideoRepeat(this.value)" title="Répéter la vidéo" aria-label="Répéter la vidéo">
-                  <option value="none">Non</option>
-                  <option value="once">Une fois</option>
-                  <option value="loop">Boucle</option>
-                </select>
-              </div>
               <div class="video-control-item">
                 <label for="videoSpeedSelect" class="video-control-label"><i class="fas fa-tachometer-alt"></i> Vitesse</label>
                 <select id="videoSpeedSelect" onchange="applyVideoSpeed(this.value)" title="Vitesse de lecture" aria-label="Vitesse de lecture">
@@ -148,81 +148,239 @@
       </div>
     </main>
 
-    <!-- Onglet Détection signe (vidéo → label) -->
+    <!-- Onglet Texte to caractère : saisie texte/vocal → une image par caractère (dataset ArabicSign) -->
     <main class="detection-panel" id="panelDetection" role="tabpanel" aria-labelledby="tabDetection" hidden>
-      <div class="detection-content card">
-        <h3 class="panel-title panel-title--yellow"><i class="fas fa-hand-paper"></i> Détection du signe depuis une vidéo</h3>
-        <p class="detection-desc">Choisissez une vidéo en langue des signes. Le modèle <strong>sign_model_final.pth</strong> prédit le signe affiché.</p>
-        <div class="detection-upload">
-          <label for="detectionVideoInput" class="detection-upload-label">
-            <i class="fas fa-upload"></i> Choisir une vidéo
-          </label>
-          <input type="file" id="detectionVideoInput" accept="video/*" class="detection-video-input" aria-label="Fichier vidéo pour détection">
-          <button type="button" class="btn btn-primary" id="detectionRunBtn" onclick="runVideoSignDetection()" disabled>
-            <i class="fas fa-play"></i> Détecter le signe
-          </button>
-        </div>
-        <div id="detectionPreview" class="detection-preview" aria-live="polite"></div>
-        <div id="detectionResult" class="detection-result" aria-live="polite">
-          <div class="detection-result-label-wrap">
-            <span class="detection-result-label">Signe prédit :</span>
-            <strong id="detectionPredictedLabel" class="detection-predicted-label">—</strong>
+      <h2 class="sr-only">Texte to caractère</h2>
+      <div class="detection-content card text-to-char-panel">
+        <h3 class="panel-title panel-title--yellow"><i class="fas fa-font"></i> Texte to caractère</h3>
+        <p class="detection-desc">Écrivez ou dictez du texte. Chaque caractère (lettre arabe ou mot romanisé) est affiché comme une image du signe correspondant (dataset ArabicSign).</p>
+        <div class="text-to-char-two-cols">
+          <div class="text-to-char-left">
+        <div class="text-to-char-input-wrap">
+          <label for="textToCharInput" class="sr-only">Texte à convertir en images de signes</label>
+          <textarea id="textToCharInput" rows="2" placeholder="Ex: أب ت ou alif ba2…" class="text-to-char-input"></textarea>
+          <div class="text-to-char-buttons">
+            <button type="button" class="btn btn-mic" id="textToCharMic" onclick="startTextToCharVoice()" title="Cliquez puis parlez en arabe pour ajouter le texte" aria-label="Micro pour dicter en arabe">
+              <i class="fas fa-microphone" id="textToCharMicIcon" aria-hidden="true"></i>
+            </button>
+            <span id="textToCharMicHint" class="text-to-char-mic-hint" aria-live="polite">
+              <i class="fas fa-info-circle"></i> Cliquez sur le micro, parlez en arabe (ou romanisé), le texte s’ajoute ici. Puis « Afficher les signes ».
+            </span>
+            <span id="textToCharMicStatus" class="text-to-char-mic-status" aria-live="polite" hidden></span>
+            <button type="button" class="btn btn-primary" id="textToCharSubmit" onclick="runTextToChar()" aria-label="Afficher les signes pour le texte saisi">
+              <i class="fas fa-images" aria-hidden="true"></i> Afficher les signes
+            </button>
+            <button type="button" class="btn btn-outline" id="textToCharClear" onclick="clearTextToChar()" title="Vider le texte et les images" aria-label="Vider le texte et les images">
+              <i class="fas fa-eraser" aria-hidden="true"></i> Vider
+            </button>
           </div>
-          <p id="detectionConfidence" class="detection-confidence"></p>
-          <p id="detectionCorrectedHint" class="detection-corrected-hint" style="display:none"></p>
-          <div id="detectionTopClasses" class="detection-top-classes"></div>
         </div>
-        <div id="detectionLoading" class="loading detection-loading" style="display:none">
+        <p id="textToCharCounter" class="text-to-char-counter" aria-live="polite">0 caractère(s)</p>
+        <div id="textToCharImages" class="text-to-char-images" aria-live="polite"></div>
+        <div id="textToCharLoading" class="loading text-to-char-loading" style="display:none">
           <div class="spinner"></div>
-          <p><i class="fas fa-sync fa-spin"></i> Analyse de la vidéo en cours...</p>
+          <p><i class="fas fa-sync fa-spin"></i> Chargement des images…</p>
         </div>
-        <div id="detectionError" class="detection-error" style="display:none" role="alert"></div>
+        <div id="textToCharError" class="detection-error" style="display:none" role="alert"></div>
+          </div>
+          <div class="text-to-char-viewer-wrap">
+            <h4 class="text-to-char-viewer-title"><i class="fas fa-play-circle"></i> Affichage en boucle</h4>
+            <div class="text-to-char-viewer" id="textToCharViewer">
+              <p class="text-to-char-viewer-placeholder" id="textToCharViewerPlaceholder">Affichez les signes pour voir la lecture en boucle ici.</p>
+              <img id="textToCharViewerImage" class="text-to-char-viewer-image" alt="" style="display:none;">
+              <p id="textToCharViewerLabel" class="text-to-char-viewer-label" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
-    <!-- Détection en direct (caméra) -->
-    <main class="realtime-panel" id="panelRealtime" role="tabpanel" aria-labelledby="tabRealtime" hidden>
-      <div class="realtime-content card">
-        <h3 class="panel-title panel-title--yellow"><i class="fas fa-video"></i> Détection du signe en temps réel</h3>
-        <p class="realtime-desc">Autorisez la caméra, faites le signe devant l’objectif. La prédiction se met à jour toutes les ~1,5 s.</p>
-        <div class="realtime-video-wrap">
-          <video id="realtimeVideo" class="realtime-video" autoplay playsinline muted aria-label="Flux caméra"></video>
-          <canvas id="realtimeHandOverlay" class="realtime-hand-overlay" aria-hidden="true"></canvas>
-          <div id="realtimePlaceholder" class="realtime-placeholder">
-            <i class="fas fa-video-slash"></i>
-            <span>Caméra désactivée</span>
+
+    <!-- Image → Texte : upload image, OCR, affichage avec espacement et couleurs -->
+    <main class="detection-panel image-text-panel" id="panelImageText" role="tabpanel" aria-labelledby="tabImageText" hidden>
+      <h2 class="sr-only">Image vers Texte</h2>
+      <div class="detection-content card image-text-card">
+        <h3 class="panel-title panel-title--yellow"><i class="fas fa-image"></i> Image → Texte</h3>
+        <p class="detection-desc">Uploadez une image : les mots sont extraits (OCR) puis affichés avec réglage des espaces, de la taille et de la couleur.</p>
+        <div class="image-text-two-cols">
+          <div class="image-text-left">
+            <div class="image-text-upload-wrap">
+              <label for="imageTextFileInput" class="sr-only">Choisir une image pour extraire le texte</label>
+              <input type="file" id="imageTextFileInput" accept="image/*" class="image-text-file-input">
+              <button type="button" class="btn btn-primary" id="imageTextUploadBtn" onclick="document.getElementById('imageTextFileInput').click()" title="Choisir une image" aria-label="Choisir une image à analyser">
+                <i class="fas fa-upload" aria-hidden="true"></i> Choisir une image
+              </button>
+              <span id="imageTextFileName" class="image-text-filename" aria-live="polite">Aucun fichier</span>
+            </div>
+            <div id="imageTextPreviewWrap" class="image-text-preview-wrap" style="display:none">
+              <img id="imageTextPreview" class="image-text-preview" alt="Aperçu de l'image chargée">
+            </div>
+            <button type="button" class="btn btn-primary" id="imageTextExtractBtn" onclick="runImageTextOCR()" style="display:none" title="Extraire le texte de l'image" aria-label="Extraire le texte de l'image (OCR)">
+              <i class="fas fa-font" aria-hidden="true"></i> Extraire les mots
+            </button>
+            <div id="imageTextOCRStatus" class="image-text-ocr-status" aria-live="polite" style="display:none"></div>
+          </div>
+          <div class="image-text-right">
+            <div class="image-text-display-controls">
+              <h4 class="image-text-controls-title"><i class="fas fa-sliders-h"></i> Affichage du texte</h4>
+              <div class="image-text-control-row">
+                <label for="imageTextLetterSpacing">Espace entre les lettres</label>
+                <input type="range" id="imageTextLetterSpacing" min="0" max="20" value="2" step="1" oninput="applyImageTextStyle()" aria-label="Espace entre les lettres">
+                <span id="imageTextLetterSpacingVal">2</span> px
+              </div>
+              <div class="image-text-control-row">
+                <label for="imageTextLineHeight">Espace entre les lignes</label>
+                <input type="range" id="imageTextLineHeight" min="100" max="250" value="140" step="10" oninput="applyImageTextStyle()" aria-label="Espace entre les lignes (%)">
+                <span id="imageTextLineHeightVal">140</span> %
+              </div>
+              <div class="image-text-control-row">
+                <label>Taille de la police</label>
+                <div class="image-text-size-btns">
+                  <button type="button" class="btn btn-outline image-text-size-btn" onclick="setImageTextFontSize(-1)" title="Réduire la taille" aria-label="Réduire la taille"><i class="fas fa-minus"></i> Petit</button>
+                  <span id="imageTextFontSizeVal" class="image-text-size-val">18</span> px
+                  <button type="button" class="btn btn-outline image-text-size-btn" onclick="setImageTextFontSize(1)" title="Augmenter la taille" aria-label="Augmenter la taille"><i class="fas fa-plus"></i> Grand</button>
+                </div>
+              </div>
+              <div class="image-text-control-row">
+                <label for="imageTextColor">Couleur du texte</label>
+                <input type="color" id="imageTextColor" value="#886183" oninput="applyImageTextStyle()" aria-label="Couleur du texte" class="image-text-color-input">
+                <input type="text" id="imageTextColorHex" value="#886183" maxlength="7" class="image-text-color-hex" placeholder="#886183" onchange="applyImageTextStyleFromHex()" aria-label="Couleur en hexadécimal">
+              </div>
+            </div>
+            <div class="image-text-output-wrap">
+              <h4 class="image-text-output-title"><i class="fas fa-align-left"></i> Texte extrait</h4>
+              <div id="imageTextOutput" class="image-text-output" aria-live="polite">
+                <p class="image-text-output-placeholder">Uploadez une image puis cliquez sur « Extraire les mots ».</p>
+              </div>
+            </div>
           </div>
         </div>
-        <p class="realtime-hint"><i class="fas fa-hand-paper"></i> Le graphe (points et traits) des mains et doigts s’affiche en direct sur la vidéo. Cadre en pointillés = zone main détectée.</p>
-        <div class="realtime-controls">
-          <button type="button" class="btn btn-primary" id="realtimeStartBtn" onclick="startRealtimeDetection()">
-            <i class="fas fa-play"></i> Démarrer la caméra
-          </button>
-          <button type="button" class="btn btn-secondary" id="realtimeStopBtn" onclick="stopRealtimeDetection()" disabled>
-            <i class="fas fa-stop"></i> Arrêter
-          </button>
-        </div>
-        <div id="realtimeResult" class="realtime-result" aria-live="polite">
-          <div class="realtime-result-label-wrap">
-            <span class="realtime-result-label">Signe prédit :</span>
-            <strong id="realtimePredictedLabel" class="realtime-predicted-label">—</strong>
+      </div>
+    </main>
+
+    <!-- Vidéo → Sous-titres : upload vidéo uniquement, extraction audio + speech-to-text (Whisper) -->
+    <main class="detection-panel video-subs-panel" id="panelVideoSubs" role="tabpanel" aria-labelledby="tabVideoSubs" hidden>
+      <h2 class="sr-only">Vidéo vers sous-titres animés</h2>
+      <div class="detection-content card video-subs-card">
+        <h3 class="panel-title panel-title--yellow"><i class="fas fa-closed-captioning"></i> Vidéo → Sous-titres</h3>
+        <p class="detection-desc">Uploadez une vidéo : l'audio est extrait et transcrit automatiquement (speech-to-text). Les sous-titres s'affichent avec le mot en cours en couleur et animé.</p>
+        <div class="video-subs-layout">
+          <div class="video-subs-upload">
+            <div class="video-subs-upload-row">
+              <label for="videoSubsVideoInput" class="sr-only">Choisir une vidéo</label>
+              <input type="file" id="videoSubsVideoInput" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv,.m4a,.wav,.mp3" class="video-subs-file-input">
+              <button type="button" class="btn btn-primary" onclick="document.getElementById('videoSubsVideoInput').click()" aria-label="Choisir une vidéo">
+                <i class="fas fa-video" aria-hidden="true"></i> Choisir une vidéo
+              </button>
+              <span id="videoSubsVideoName" class="video-subs-filename">Aucune vidéo</span>
+            </div>
+            <button type="button" class="btn btn-primary" id="videoSubsTranscribeBtn" onclick="transcribeVideoSubs()" disabled aria-label="Extraire l'audio et transcrire la vidéo">
+              <i class="fas fa-microphone" aria-hidden="true"></i> Transcrire la vidéo
+            </button>
+            <p id="videoSubsTranscribeStatus" class="video-subs-status" aria-live="polite"></p>
+            <div id="videoSubsTranscribeLoading" class="loading video-subs-loading" style="display:none">
+              <div class="spinner"></div>
+              <p><i class="fas fa-sync fa-spin" aria-hidden="true"></i> Extraction de l'audio et transcription en cours…</p>
+            </div>
           </div>
-          <p id="realtimeConfidence" class="realtime-confidence"></p>
-          <div id="realtimeTopClasses" class="realtime-top-classes"></div>
+          <div class="video-subs-player-wrap">
+            <div class="video-subs-video-container">
+              <video id="videoSubsPlayer" class="video-subs-player" controls playsinline preload="auto" aria-label="Vidéo avec sous-titres"></video>
+              <p id="videoSubsPlaceholder" class="video-subs-placeholder">Uploadez une vidéo puis cliquez sur « Transcrire la vidéo ».</p>
+              <div id="videoSubsSubtitleBlock" class="video-subs-subtitle-overlay" aria-live="polite">
+                <p id="videoSubsSubtitleLine" class="video-subs-subtitle-line">
+                  <span id="videoSubsSubtitleContent">Les sous-titres apparaîtront ici sur toute la vidéo après transcription.</span>
+                </p>
+              </div>
+            </div>
+            <div id="videoSubsArabicBlock" class="video-subs-arabic-block" aria-live="polite">
+              <p class="video-subs-arabic-label"><i class="fas fa-language" aria-hidden="true"></i> Traduction en arabe</p>
+              <p id="videoSubsArabicTranslation" class="video-subs-arabic-text" dir="rtl" lang="ar"></p>
+            </div>
+          </div>
         </div>
-        <div id="realtimeError" class="realtime-error" style="display:none" role="alert"></div>
+      </div>
+    </main>
+
+    <!-- Sign-to-Text ASL — même interface que ArabicSign (Camera Feed + Prediction Results) -->
+    <main class="realtime-panel asl-capture-panel" id="panelASL" role="tabpanel" aria-labelledby="tabASL" hidden>
+      <h2 class="sr-only">Sign-to-Text reconnaissance de signes</h2>
+      <div class="asl-capture-wrap">
+        <div class="app-container asl-app-container">
+          <section class="camera-section asl-camera-section">
+            <div class="panel asl-panel">
+              <h2 class="asl-panel-h2"><i class="fas fa-camera"></i> Camera Feed</h2>
+              <div class="camera-container asl-camera-container">
+                <video id="aslVideo" autoplay playsinline aria-label="Flux caméra"></video>
+                <canvas id="aslCanvas" style="display: none;"></canvas>
+                <div class="camera-controls asl-camera-controls">
+                  <button type="button" id="aslStartCamera" class="btn asl-btn" aria-label="Démarrer la caméra"><i class="fas fa-play" aria-hidden="true"></i> Start Camera</button>
+                  <button type="button" id="aslCaptureImage" class="btn asl-btn" disabled aria-label="Capturer l'image pour la prédiction"><i class="fas fa-camera" aria-hidden="true"></i> Capture</button>
+                </div>
+              </div>
+              <div class="upload-container asl-upload-container">
+                <h3>Or upload an image</h3>
+                <form id="aslUploadForm" enctype="multipart/form-data">
+                  <label for="aslFileUpload" class="file-upload-btn asl-file-upload-btn">
+                    <i class="fas fa-upload" aria-hidden="true"></i> Choose File
+                  </label>
+                  <input type="file" id="aslFileUpload" accept="image/*" style="display: none;" aria-label="Choisir une image pour la prédiction">
+                  <span id="aslFileName">No file chosen</span>
+                  <button type="submit" class="btn submit-btn asl-submit-btn" aria-label="Envoyer l'image pour la prédiction"><i class="fas fa-paper-plane" aria-hidden="true"></i> Submit</button>
+                </form>
+              </div>
+            </div>
+          </section>
+          <section class="prediction-section asl-prediction-section">
+            <div class="panel asl-panel">
+              <h2 class="asl-panel-h2"><i class="fas fa-brain"></i> Prediction Results</h2>
+              <div class="prediction-container asl-prediction-container">
+                <div class="captured-image-container asl-captured-image-container">
+                  <h3>Captured Image</h3>
+                  <img id="aslCapturedImage" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect fill='%23f0f0f0' width='192' height='192'/%3E%3Ctext fill='%23999' x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14'%3ECaptured image will appear here%3C/text%3E%3C/svg%3E" alt="Captured image will appear here">
+                </div>
+                <div class="results-container asl-results-container">
+                  <div class="main-prediction asl-main-prediction">
+                    <h3>Prediction</h3>
+                    <div class="prediction-result asl-prediction-result">
+                      <span id="aslMainPrediction" class="asl-main-prediction-text">unknown</span>
+                      <div class="confidence-bar-container asl-confidence-bar-container">
+                        <div class="confidence-bar asl-confidence-bar" id="aslMainConfidenceBar" style="width: 0%;"></div>
+                      </div>
+                      <span id="aslMainConfidence">0%</span>
+                    </div>
+                  </div>
+                  <div class="other-predictions asl-other-predictions">
+                    <h3>Other Possibilities</h3>
+                    <div id="aslTopPredictions" class="top-predictions asl-top-predictions"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="real-time-mode asl-real-time-mode">
+                <h3>Real-time Mode</h3>
+                <label class="switch asl-switch">
+                  <input type="checkbox" id="aslRealtimeToggle">
+                  <span class="slider round"></span>
+                </label>
+                <span id="aslRealtimeStatus">Off</span>
+                <p class="info-text">When enabled, the camera feed will be continuously analyzed for Arabic hand sign classification.</p>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </main>
     
     <footer>
+      <h2 class="sr-only">Pied de page</h2>
       <div class="footer-content">
         <div class="tech-info">
-          <h4><i class="fas fa-microchip"></i> Technologies utilisées</h4>
+          <h3><i class="fas fa-microchip" aria-hidden="true"></i> Technologies utilisées</h3>
           <p>Dictionnaire tunisien • Groq • Three.js • Web Speech API</p>
         </div>
         
         <div class="instructions">
-          <h4><i class="fas fa-lightbulb"></i> Instructions</h4>
+          <h3><i class="fas fa-lightbulb" aria-hidden="true"></i> Instructions</h3>
           <p>1. Tapez ou parlez en dialecte tunisien</p>
           <p>2. Dictionnaire ou Groq traduira en français</p>
           <p>3. L'avatar animera les concepts clés</p>
@@ -230,7 +388,7 @@
         </div>
         
         <div class="api-info">
-          <h4><i class="fas fa-key"></i> Configuration API</h4>
+          <h3><i class="fas fa-key" aria-hidden="true"></i> Configuration API</h3>
           <p>Clé Groq dans app.js (dictionnaire dans dictionary.js)</p>
           <small>Groq : console.groq.com</small>
         </div>
@@ -253,29 +411,33 @@
         <li><kbd>Entrée</kbd> (dans la zone de texte) Lancer la traduction</li>
         <li><kbd>Ctrl</kbd>+<kbd>Entrée</kbd> Lancer la traduction</li>
         <li><kbd>Alt</kbd>+<kbd>1</kbd> Onglet Traduction</li>
-        <li><kbd>Alt</kbd>+<kbd>2</kbd> Onglet Détection signe (vidéo)</li>
-        <li><kbd>Alt</kbd>+<kbd>3</kbd> Onglet Détection en direct</li>
+        <li><kbd>Alt</kbd>+<kbd>2</kbd> Onglet Texte to caractère</li>
+        <li><kbd>Alt</kbd>+<kbd>3</kbd> Onglet Sign-to-Text</li>
+        <li><kbd>Alt</kbd>+<kbd>4</kbd> Onglet Image → Texte</li>
+        <li><kbd>Alt</kbd>+<kbd>5</kbd> Onglet Vidéo → Sous-titres</li>
         <li><kbd>Alt</kbd>+<kbd>S</kbd> Ouvrir / fermer Paramètres</li>
         <li><kbd>Alt</kbd>+<kbd>M</kbd> Démarrer le micro (traduction)</li>
         <li><kbd>←</kbd> <kbd>→</kbd> (sur les onglets) Changer d'onglet</li>
         <li><kbd>Q</kbd> (curseur yeux actif) Fermer le curseur yeux</li>
       </ul>
-      <button type="button" class="btn btn-primary" onclick="toggleKeyboardShortcuts()">Fermer</button>
+      <button type="button" class="btn btn-primary" onclick="toggleKeyboardShortcuts()" aria-label="Fermer les raccourcis clavier">Fermer</button>
     </div>
   </div>
 
   <!-- Bouton Paramètres fixe sur l'écran (toujours visible) -->
-  <button type="button" class="settings-fab" id="settingsFab" onclick="toggleSettingsPanel()" aria-label="Paramètres d'affichage" title="Paramètres (Alt+S)">
+  <button type="button" class="settings-fab" id="settingsFab" onclick="toggleSettingsPanel()" aria-label="Ouvrir les paramètres d'affichage" title="Paramètres (Alt+S)">
     <i class="fas fa-cog" aria-hidden="true"></i>
   </button>
-  <div class="settings-panel" id="settingsPanel" aria-hidden="true">
+  <div class="settings-panel" id="settingsPanel" aria-hidden="true" role="dialog" aria-labelledby="settingsPanelTitle" aria-modal="true">
     <div class="settings-panel-header">
-      <h3><i class="fas fa-sliders-h"></i> Affichage</h3>
-      <button type="button" class="settings-close" onclick="toggleSettingsPanel()" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      <h2 id="settingsPanelTitle" class="settings-panel-title-heading"><i class="fas fa-sliders-h" aria-hidden="true"></i> Affichage</h2>
+      <button type="button" class="settings-close" onclick="toggleSettingsPanel()" aria-label="Fermer le panneau Paramètres"><i class="fas fa-times" aria-hidden="true"></i></button>
     </div>
     <div class="settings-panel-body">
+      <p class="settings-intro" id="settingsIntro">Ces réglages s'appliquent dans tous les modes (sombre, nuit, clair). Ils sont enregistrés automatiquement.</p>
       <div class="settings-group">
         <label for="displayModeSelect" class="settings-label"><i class="fas fa-moon"></i> Mode d'affichage</label>
+        <p class="settings-hint">Fond et couleurs générales de l'interface.</p>
         <select id="displayModeSelect" onchange="applyDisplayMode(this.value)" aria-label="Mode d'affichage">
           <option value="sombre">Mode sombre</option>
           <option value="nuit">Mode nuit</option>
@@ -284,13 +446,15 @@
       </div>
       <div class="settings-group">
         <label for="contrastRange" class="settings-label"><i class="fas fa-adjust"></i> Contraste</label>
+        <p class="settings-hint">Augmente la netteté des textes et des bordures (100 % = normal, 150 % = maximum).</p>
         <div class="settings-range-wrap">
-          <input type="range" id="contrastRange" min="1" max="1.5" step="0.05" value="1" oninput="applyPageContrast(this.value)" aria-label="Contraste de la page">
-          <span id="contrastValue" class="settings-value">100%</span>
+          <input type="range" id="contrastRange" min="1" max="1.5" step="0.05" value="1" oninput="applyPageContrast(this.value)" aria-valuemin="100" aria-valuemax="150" aria-valuenow="100" aria-label="Contraste de la page (100 % à 150 %)">
+          <span id="contrastValue" class="settings-value" aria-live="polite">100%</span>
         </div>
       </div>
       <div class="settings-group">
         <label class="settings-label"><i class="fas fa-palette"></i> Thème de couleurs</label>
+        <p class="settings-hint">Couleur d'accent (boutons, liens, focus) dans le mode actuel.</p>
         <div class="settings-themes">
           <button type="button" class="settings-theme-btn active" data-theme="default" onclick="applyTheme('default')" aria-pressed="true">Par défaut</button>
           <button type="button" class="settings-theme-btn" data-theme="blue" onclick="applyTheme('blue')" aria-pressed="false">Bleu</button>
@@ -301,15 +465,17 @@
       </div>
       <div class="settings-group">
         <label for="fontSizeSelect" class="settings-label"><i class="fas fa-text-height"></i> Taille du texte</label>
+        <p class="settings-hint">Agrandit ou réduit tout le texte du site (90 % à 125 %).</p>
         <select id="fontSizeSelect" onchange="applyFontSize(this.value)" aria-label="Taille du texte">
-          <option value="100">Normale</option>
-          <option value="110">Grande</option>
-          <option value="125">Très grande</option>
+          <option value="90">Petite (90 %)</option>
+          <option value="100">Normale (100 %)</option>
+          <option value="110">Grande (110 %)</option>
+          <option value="125">Très grande (125 %)</option>
         </select>
       </div>
       <div class="settings-group settings-group-eye-cursor">
         <label class="settings-label"><i class="fas fa-eye"></i> Curseur piloté par les yeux</label>
-        <p class="settings-eye-cursor-desc">Si vous ne pouvez pas utiliser la souris, cliquez sur le bouton ci-dessous pour activer le curseur piloté par les yeux (intégré au site). Le regard déplace le curseur, fermer les deux yeux = clic, regarder en haut/bas = scroll. Touche Q pour fermer.</p>
+        <p class="settings-eye-cursor-desc">Si vous ne pouvez pas utiliser la souris, cliquez sur le bouton ci-dessous pour activer le curseur piloté par les yeux (intégré au site). Le regard déplace le curseur, fermer les deux yeux = clic, regarder en haut/bas = scroll. Touche Q pour fermer. Fonctionne dans tous les modes d'affichage.</p>
         <button type="button" class="btn btn-secondary btn-eye-cursor" id="eyeCursorBtn" onclick="startEyeCursor()" aria-label="Ouvrir le curseur piloté par les yeux">
           <i class="fas fa-eye"></i> Ouvrir le curseur piloté par les yeux
         </button>
@@ -317,13 +483,13 @@
       </div>
       <div class="settings-group settings-group-wcag">
         <label class="settings-label"><i class="fas fa-universal-access"></i> Accessibilité WCAG</label>
-        <p class="settings-wcag-desc">Vérifier que les couleurs respectent le contraste WCAG 2.1 (API WebAIM + calcul local).</p>
+        <p class="settings-wcag-desc">Vérifier que les couleurs du mode actuel respectent le contraste WCAG 2.1 (API WebAIM + calcul local). Vous pouvez ensuite appliquer des couleurs plus accessibles si besoin.</p>
         <button type="button" class="btn btn-secondary btn-wcag-check" id="wcagCheckBtn" onclick="runWcagCheck()">
           <i class="fas fa-check-double"></i> Vérifier le contraste
         </button>
         <div id="wcagCheckResults" class="wcag-results" aria-live="polite" hidden></div>
-        <button type="button" class="btn btn-secondary btn-wcag-apply" id="wcagApplyBtn" onclick="applyWcagColors()" title="Ajuster les couleurs pour respecter WCAG AA">
-          <i class="fas fa-palette"></i> Appliquer couleurs accessibles
+        <button type="button" class="btn btn-secondary btn-wcag-apply" id="wcagApplyBtn" onclick="applyWcagColors()" title="Ajuster les couleurs pour respecter WCAG AA" aria-label="Appliquer les couleurs accessibles WCAG AA">
+          <i class="fas fa-palette" aria-hidden="true"></i> Appliquer couleurs accessibles
         </button>
       </div>
     </div>
@@ -340,11 +506,11 @@
       <p class="eye-cursor-ask-desc">Répondez par la voix : <strong>Oui</strong>, <strong>Ey</strong> / <strong>Eyyy</strong> (tunisien), <strong>Non</strong> ou <strong>Le</strong> (tunisien), ou cliquez ci-dessous.</p>
       <p id="eyeCursorAskStatus" class="eye-cursor-ask-status" aria-live="polite"></p>
       <div class="eye-cursor-ask-buttons">
-        <button type="button" class="btn btn-primary" id="eyeCursorAskYes" onclick="eyeCursorAskAnswer(true)">
-          <i class="fas fa-check"></i> Oui
+        <button type="button" class="btn btn-primary" id="eyeCursorAskYes" onclick="eyeCursorAskAnswer(true)" aria-label="Oui, activer le curseur piloté par les yeux">
+          <i class="fas fa-check" aria-hidden="true"></i> Oui
         </button>
-        <button type="button" class="btn btn-secondary" id="eyeCursorAskNo" onclick="eyeCursorAskAnswer(false)">
-          <i class="fas fa-times"></i> Non
+        <button type="button" class="btn btn-secondary" id="eyeCursorAskNo" onclick="eyeCursorAskAnswer(false)" aria-label="Non, ne pas activer le curseur yeux">
+          <i class="fas fa-times" aria-hidden="true"></i> Non
         </button>
       </div>
     </div>
@@ -385,6 +551,8 @@
   <!-- Three.js 0.128 inclut encore examples/js (GLTFLoader UMD) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- Tesseract.js pour OCR (Image → Texte) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" crossorigin="anonymous"></script>
   <!-- Dictionnaire tunisien → français -->
   <script src="dictionary.js"></script>
   <!-- WCAG contrast API + local fallback -->

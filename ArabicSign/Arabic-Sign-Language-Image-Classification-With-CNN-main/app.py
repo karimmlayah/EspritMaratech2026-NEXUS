@@ -27,18 +27,36 @@ templates = Jinja2Templates(directory=templates_dir)
 
 # Load the model (relative to this script so it runs from project root or anywhere)
 _BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = os.environ.get("ARABIC_SIGN_MODEL", str(_BASE_DIR / "models" / "arabic_letters_model.h5"))
+MODEL_PATH = os.environ.get("ARABIC_SIGN_MODEL", str(_BASE_DIR / "models" / "asl_model.h5"))
 
-# Define the class labels (Arabic letters)
-labels = ['aeyn', 'alif', 'alif_lam', 'ba2', 'daal', 'dha2', 'dhaad', 'fa2', 'gaf', 'ghayn', 
-          'haa', 'haa2', 'jeeem', 'kaaaf', 'khaaa', 'laa', 'laaam', 'meeem', 'nuun', 'ra2', 
-          'saaad', 'seeen', 'sheeen', 'ta2', 'taa', 'thaaa', 'thaal', 'toott', 'waaw', 'yaa', 
-          'yaa2', 'zaay']
+# Class labels for asl_model.h5 (32 classes, same order as training)
+labels = [
+    'ain', 'al', 'aleff', 'bb', 'dal', 'dha', 'dhad', 'fa', 'gaaf', 'ghain',
+    'ha', 'haa', 'jeem', 'kaaf', 'la', 'laam', 'meem', 'nun', 'ra', 'saad',
+    'seen', 'sheen', 'ta', 'taa', 'thaa', 'thal', 'toot', 'waw', 'ya', 'yaa', 'zay', 'unknown'
+]
 
 # Temperature scaling factor for confidence calibration (lower value = higher confidence)
 TEMPERATURE = 0.1
 
-# Function to create a simple CNN model
+# Architecture of asl_model.h5 (64x64 RGB, 32 classes)
+def _build_asl_model():
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense
+    model = Sequential([
+        Input(shape=(64, 64, 3)),
+        Conv2D(32, (3, 3), activation='relu', name='conv2d_6'),
+        MaxPooling2D((2, 2), name='max_pooling2d_4'),
+        Conv2D(64, (3, 3), activation='relu', name='conv2d_7'),
+        MaxPooling2D((2, 2), name='max_pooling2d_5'),
+        Conv2D(64, (3, 3), activation='relu', name='conv2d_8'),
+        Flatten(name='flatten_2'),
+        Dense(64, activation='relu', name='dense_4'),
+        Dense(32, activation='softmax', name='dense_5'),
+    ])
+    return model
+
+# Function to create a simple CNN model (fallback for arabic_letters_model)
 def create_model(input_shape=(64, 64, 1), num_classes=len(labels)):
     import tensorflow as tf
     from tensorflow.keras.models import Sequential
@@ -80,45 +98,32 @@ def create_model(input_shape=(64, 64, 1), num_classes=len(labels)):
     
     return model
 
-# Load the model if it exists, otherwise provide instructions
+# Load the model if it exists (asl_model.h5: build architecture + load_weights)
 model = None
 try:
-    # Try loading with tf.keras.models.load_model with custom options
     import tensorflow as tf
     print(f"Attempting to load model from {MODEL_PATH}")
     
-    # Try with standard loading first
     try:
         model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        print("Model loaded successfully with standard loading")
+        print("Model loaded successfully with load_model()")
     except Exception as e1:
-        print(f"Standard loading failed: {e1}")
-        # Try with custom loading options
+        print(f"load_model failed: {e1}")
         try:
-            model = tf.keras.models.load_model(
-                MODEL_PATH, 
-                compile=False,
-                options=tf.saved_model.LoadOptions(experimental_io_device='/job:localhost')
-            )
-            print("Model loaded successfully with custom loading options")
+            model = _build_asl_model()
+            model.load_weights(MODEL_PATH, by_name=True)
+            print("Model loaded successfully with build + load_weights (asl_model.h5)")
         except Exception as e2:
-            print(f"Custom loading failed: {e2}")
-            # If all loading attempts fail, create a new model
-            print("Creating a new model with the same architecture...")
-            model = create_model()
-            print("Model created successfully with default architecture")
+            print(f"load_weights failed: {e2}")
+            model = None
     
-    print(f"Model loaded or created successfully")
-    # Print model summary to verify it's loaded correctly
     if model is not None:
         model.summary()
         print(f"Model input shape: {model.input_shape}")
         print(f"Model output shape: {model.output_shape}")
 except Exception as e:
     print(f"Error with model: {e}")
-    print("Creating a new model with default architecture")
-    model = create_model()
-    print("Model created successfully with default architecture")
+    model = None
 
 # Define a dummy prediction function for when the model isn't available
 def get_dummy_prediction(img_array):
@@ -147,23 +152,12 @@ async def predict(file: UploadFile = File(...)):
     if model is None:
         return JSONResponse(content={"error": f"Model not loaded. Please ensure it exists at {MODEL_PATH}"})
     
-    # Read and preprocess the image
+    # Read and preprocess the image (asl_model.h5 expects RGB 64x64x3)
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert('L')  # Convert to grayscale
-    image = image.resize((64, 64))  # Resize to match model input size
-    
-    # Enhanced preprocessing
-    img_array = np.array(image)
-    
-    # Print image statistics for debugging
-    print(f"Original image shape: {img_array.shape}")
-    print(f"Image min/max values: {np.min(img_array)}/{np.max(img_array)}")
-    
-    # Normalize the image (simple normalization without thresholding)
-    img_array = img_array / 255.0
-    
-    # Add batch and channel dimensions
-    img_array = np.expand_dims(img_array, axis=[0, -1])
+    image = Image.open(io.BytesIO(contents)).convert('RGB')
+    image = image.resize((64, 64))
+    img_array = np.array(image, dtype=np.float32) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
     
     print(f"Processed image shape: {img_array.shape}")
     print(f"Processed image min/max values: {np.min(img_array)}/{np.max(img_array)}")
@@ -244,18 +238,11 @@ async def websocket_endpoint(websocket: WebSocket):
             # Decode base64 image
             image_bytes = base64.b64decode(data)
             
-            # Convert to image
-            image = Image.open(io.BytesIO(image_bytes)).convert('L')  # Convert to grayscale
-            image = image.resize((64, 64))  # Resize to match model input size
-            
-            # Enhanced preprocessing
-            img_array = np.array(image)
-            
-            # Simple normalization without thresholding
-            img_array = img_array / 255.0
-            
-            # Add batch and channel dimensions
-            img_array = np.expand_dims(img_array, axis=[0, -1])
+            # Convert to image (asl_model.h5: RGB 64x64x3)
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            image = image.resize((64, 64))
+            img_array = np.array(image, dtype=np.float32) / 255.0
+            img_array = np.expand_dims(img_array, axis=0)
             
             # Make prediction
             if model is None:

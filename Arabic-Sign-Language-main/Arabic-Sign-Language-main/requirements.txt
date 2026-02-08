@@ -1,4 +1,4 @@
-cmake==3.19.4
+# CMake: si dlib echoue a l'install, installez CMake (system ou: pip install cmake)
 arabic-reshaper==2.1.1
 dlib==19.21.1
 Keras==2.4.3

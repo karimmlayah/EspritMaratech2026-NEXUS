@@ -26,7 +26,7 @@ Reconnaissance en direct des signes de la langue arabe via la webcam. Les lettre
    pip install -r requirements.txt
    ```
 
-   Si `dlib` échoue sous Windows, installez d’abord les [outils de build Visual C++](https://visualstudio.microsoft.com/visual-cpp-build-tools/) puis réessayez, ou utilisez une wheel précompilée pour votre version de Python.
+   **dlib (optionnel)** : sous Windows, `pip install dlib` échoue sans Visual Studio C++. Utilisez la wheel précompilée en lançant **`translate\install_dlib_windows.bat`** (depuis la racine du projet). Sinon, Sign-to-Text fonctionne sans dlib (sans la fenêtre LandMark visage).
 
 4. **Protobuf** : si vous voyez `TypeError: Descriptors cannot be created directly` au lancement, installez une version compatible :
    ```

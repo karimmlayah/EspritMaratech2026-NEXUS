@@ -20,7 +20,7 @@ pip install -r requirements.txt
 
 ## Running the Application
 
-1. Make sure your model is saved at `models/arabic_letters_model.h5`
+1. Make sure your model is saved at `models/asl_model.h5` (RGB 64x64, 32 classes)
 2. Run the FastAPI server:
 
 ```

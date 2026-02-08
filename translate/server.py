@@ -6,6 +6,7 @@ API /api/predict_signs : concepts → noms de signes (utilise sign_model.pth si 
 import json
 import os
 import sys
+import numpy as np
 from flask import Flask, send_from_directory, request, jsonify, redirect
 from flask_cors import CORS
 
@@ -172,7 +173,7 @@ def hand_landmarker_task():
 
 @app.route("/")
 def index():
-    return send_from_directory(ROOT, "index.html")
+    return redirect("/translate/", code=302)
 
 
 @app.route("/translate")
@@ -578,6 +579,84 @@ def video_predict_sign_frames():
         return jsonify({"error": str(e)}), 500
 
 
+# Dataset images par lettre (ArabicSign) — Texte to caractère
+def _letter_data_dir():
+    d = os.path.join(ROOT, "ArabicSign", "Arabic-Sign-Language-Image-Classification-With-CNN-main", "data")
+    return os.path.normpath(os.path.abspath(d)) if os.path.isdir(d) else None
+
+LETTER_DATA_DIR = _letter_data_dir()
+
+def _letter_folders():
+    if not LETTER_DATA_DIR:
+        return []
+    out = []
+    for name in sorted(os.listdir(LETTER_DATA_DIR)):
+        path = os.path.join(LETTER_DATA_DIR, name)
+        if os.path.isdir(path):
+            for f in os.listdir(path):
+                if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                    out.append(name)
+                    break
+    return out
+
+@app.route("/api/letter_folders")
+def api_letter_folders():
+    """Liste des dossiers (lettres) du dataset ArabicSign/data."""
+    return jsonify({"folders": _letter_folders()})
+
+@app.route("/api/letter_image/<folder>")
+def api_letter_image(folder):
+    """Sert une image aléatoire du dossier data/<folder> (dataset ArabicSign)."""
+    if not LETTER_DATA_DIR or not folder or ".." in folder or "/" in folder or "\\" in folder:
+        return jsonify({"error": "Invalid folder"}), 404
+    dir_path = os.path.join(LETTER_DATA_DIR, folder)
+    if not os.path.isdir(dir_path):
+        return jsonify({"error": "Folder not found"}), 404
+    images = [f for f in os.listdir(dir_path) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    if not images:
+        return jsonify({"error": "No image in folder"}), 404
+    import random
+    filename = random.choice(images)
+    return send_from_directory(dir_path, filename, mimetype="image/jpeg")
+
+
+@app.route("/api/asl/predict", methods=["POST"])
+def api_asl_predict():
+    """
+    Prédiction lettre ASL (langue des signes arabe).
+    Body: JSON { "image": "base64_jpeg" } — image de la main (ou cadre caméra).
+    Retourne: { "letter_ar": "ث", "letter_en": "thaa", "score": 95.2 }.
+    """
+    import base64
+    try:
+        data = request.get_json()
+        if not data or "image" not in data:
+            return jsonify({"error": "Body JSON avec clé 'image' (base64) requise"}), 400
+        b64 = data["image"]
+        if isinstance(b64, str) and "," in b64:
+            b64 = b64.split(",", 1)[-1]
+        raw = base64.b64decode(b64)
+        arr = np.frombuffer(raw, dtype=np.uint8)
+        import cv2
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({"error": "Image invalide"}), 400
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        from asl_predict_server import predict_from_image_rgb
+        letter_ar, letter_en, score, top_predictions = predict_from_image_rgb(img_rgb)
+        if letter_ar is None:
+            return jsonify({"letter_ar": "", "letter_en": "", "score": 0.0, "top_predictions": [], "error": "Prédiction indisponible"})
+        return jsonify({
+            "letter_ar": letter_ar, "letter_en": letter_en, "score": round(score, 2),
+            "prediction": letter_en, "confidence": score / 100.0,
+            "top_predictions": top_predictions
+        })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e), "letter_ar": "", "letter_en": "", "score": 0.0}), 503
+    except Exception as e:
+        return jsonify({"error": str(e), "letter_ar": "", "letter_en": "", "score": 0.0}), 500
+
+
 @app.route("/<path:path>")
 def root_static(path):
     if path in ("index.html", "app.js", "style.css"):
@@ -585,9 +664,89 @@ def root_static(path):
     return send_from_directory(ROOT, path)
 
 
+# ========== Vidéo → Sous-titres : extraction audio + Whisper speech-to-text ==========
+# Dossier temporaire dans le projet (évite "No space left" si le disque système C: est plein)
+TRANSCRIBE_TMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp_transcribe")
+
+
+def _file_has_audio_stream(filepath):
+    """Vérifie avec ffprobe si le fichier contient au moins une piste audio. Retourne False si pas d'audio ou erreur."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "a",
+                "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                filepath
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
+        )
+        return out.returncode == 0 and "audio" in (out.stdout or "")
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        return True  # si ffprobe absent ou erreur, on laisse Whisper tenter
+
+
+@app.route("/api/video/transcribe", methods=["POST"])
+def video_transcribe():
+    """Reçoit une vidéo, extrait l'audio et transcrit avec Whisper. Retourne { cues: [ { start, end, text } ] }."""
+    if "video" not in request.files and "file" not in request.files:
+        return jsonify({"error": "Aucun fichier vidéo envoyé"}), 400
+    f = request.files.get("video") or request.files.get("file")
+    if not f or f.filename == "":
+        return jsonify({"error": "Fichier vide"}), 400
+    if not (f.filename.lower().endswith((".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4a", ".wav", ".mp3"))):
+        return jsonify({"error": "Format non supporté (utilisez mp4, webm, wav, mp3, etc.)"}), 400
+    try:
+        import tempfile
+        import whisper
+    except ImportError:
+        return jsonify({
+            "error": "Whisper non installé. Dans un terminal (dossier translate) : exécutez install_whisper.bat ou : pip install openai-whisper. Installez aussi ffmpeg (winget install ffmpeg)."
+        }), 503
+    tmp = None
+    try:
+        os.makedirs(TRANSCRIBE_TMP_DIR, exist_ok=True)
+        suffix = os.path.splitext(f.filename)[1] or ".mp4"
+        fd, tmp = tempfile.mkstemp(suffix=suffix, dir=TRANSCRIBE_TMP_DIR)
+        os.close(fd)
+        f.save(tmp)
+        if not _file_has_audio_stream(tmp):
+            return jsonify({
+                "error": "Cette vidéo n'a pas de piste audio. Utilisez une vidéo avec du son pour la transcription."
+            }), 400
+        model = whisper.load_model("base")
+        result = model.transcribe(tmp, language=None, task="transcribe", fp16=False)
+        cues = []
+        for seg in (result.get("segments") or []):
+            start = float(seg.get("start", 0))
+            end = float(seg.get("end", start))
+            text = (seg.get("text") or "").strip()
+            if text:
+                cues.append({"start": start, "end": end, "text": text})
+        return jsonify({"cues": cues})
+    except OSError as e:
+        if e.errno == 28:  # No space left on device
+            return jsonify({
+                "error": "Espace disque insuffisant. Libérez de la place sur le disque (surtout le disque où se trouve le projet, ou C:). Le fichier temporaire est maintenant dans translate/tmp_transcribe/"
+            }), 507
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if tmp and os.path.isfile(tmp):
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
     print(f"Serveur: http://127.0.0.1:5000")
     print(f"  Site principal: http://127.0.0.1:5000/")
     print(f"  Traducteur:     http://127.0.0.1:5000/translate/")
+    print(f"  Sign-to-Text ASL: onglet dans /translate/ (Lettres langue des signes arabe)")
     print(f"  Animations:     {ANIMATIONS_DIR} (existe: {os.path.isdir(ANIMATIONS_DIR)})")
     app.run(host="127.0.0.1", port=5000, debug=True)

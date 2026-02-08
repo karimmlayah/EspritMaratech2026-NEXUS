@@ -823,6 +823,8 @@ var CONCEPT_LEMMA_FOR_VIDEO = {
 var allAnimationVideoKeys = [];
 /** Une seule vidéo prioritaire : "langue des signes" → langue_des_signes.mp4 */
 var LANGUE_DES_SIGNES_VIDEO_KEY = "langue_des_signes";
+/** Vidéo affichée quand la vidéo du signe est introuvable (animations/inconnue.mp4) */
+var FALLBACK_VIDEO_KEY = "inconnue";
 /** Mapping phrase normalisée → clé vidéo (fallback si la liste API n'est pas encore chargée) */
 var PHRASE_TO_VIDEO_KEY = {
   "langue des signes": LANGUE_DES_SIGNES_VIDEO_KEY,
@@ -957,13 +959,15 @@ function buildSentenceSignItems(concepts) {
     }
     var concept = concepts[i];
     var animationKey = getAnimationKeyForConcept(concept);
-    items.push({ label: concept, videoKey: animationKey, concept: concept });
+    // Pas de vidéo pour ce concept → utiliser inconnue.mp4 pour l’affichage
+    var videoKey = animationKey || FALLBACK_VIDEO_KEY;
+    items.push({ label: concept, videoKey: videoKey, concept: concept });
     i += 1;
   }
   return items;
 }
 
-/** Renders the "sentence signs" strip: only concepts that have a sign video (no placeholder cards). */
+/** Renders the "sentence signs" strip: one card per concept (vidéo réelle ou inconnue.mp4). */
 function renderSentenceSignsStrip(items) {
   var container = document.getElementById("sentenceSignsStrip");
   if (!container) return;
@@ -972,7 +976,7 @@ function renderSentenceSignsStrip(items) {
     container.classList.remove("has-items");
     return;
   }
-  var withVideo = items.filter(function (item) { return item.videoKey; });
+  var withVideo = items;
   if (withVideo.length === 0) {
     container.classList.remove("has-items");
     return;
@@ -996,6 +1000,12 @@ function renderSentenceSignsStrip(items) {
     video.preload = "metadata";
     video.muted = true;
     video.setAttribute("aria-label", "Signe : " + item.label);
+    video.addEventListener("error", function fallbackOnce() {
+      video.removeEventListener("error", fallbackOnce);
+      if (item.videoKey !== FALLBACK_VIDEO_KEY) {
+        video.src = apiBase + "/api/animations/video/" + encodeURIComponent(FALLBACK_VIDEO_KEY);
+      }
+    }, { once: true });
     videoWrap.appendChild(video);
     var playBtn = document.createElement("button");
     playBtn.type = "button";
@@ -1022,7 +1032,13 @@ function getGlbAnimationKeyForConcept(concept) {
   return CONCEPT_TO_GLB_ANIMATION[n] || null;
 }
 
-function showVideoInAvatarZone(key) {
+function getAnimationVideoUrl(key) {
+  var apiBase = typeof getApiBase === "function" ? getApiBase() : (window.location.origin || "");
+  return apiBase + "/api/animations/video/" + encodeURIComponent(key);
+}
+
+function showVideoInAvatarZone(key, loopVideo) {
+  if (loopVideo === undefined) loopVideo = true;
   var wrap = document.getElementById("sceneAndVideoWrap") || document.querySelector(".scene-and-video-wrap");
   var placeholder = document.getElementById("videoPlaceholder");
   var brightnessWrap = document.getElementById("videoBrightnessWrap");
@@ -1032,12 +1048,20 @@ function showVideoInAvatarZone(key) {
   if (brightnessWrap) brightnessWrap.style.display = "block";
   wrap.classList.add("show-video");
   var apiBase = typeof getApiBase === "function" ? getApiBase() : (window.location.origin || "");
-  videoEl.src = apiBase + "/api/animations/video/" + encodeURIComponent(key);
+  var url = getAnimationVideoUrl(key);
+  videoEl.src = url;
   videoEl.currentTime = 0;
+  function onVideoError() {
+    videoEl.removeEventListener("error", onVideoError);
+    if (key === FALLBACK_VIDEO_KEY) return;
+    videoEl.src = getAnimationVideoUrl(FALLBACK_VIDEO_KEY);
+    videoEl.load();
+    videoEl.play();
+  }
+  videoEl.addEventListener("error", onVideoError, { once: true });
   applyVideoSpeed(getVideoSpeed());
   applyVideoBrightness(getVideoBrightness());
-  applyVideoRepeat(getVideoRepeat());
-  setupVideoRepeatOnce(videoEl);
+  videoEl.loop = !!loopVideo;
   videoEl.play();
 }
 
@@ -1067,6 +1091,7 @@ function getVideoRepeat() {
   var sel = document.getElementById("videoRepeatSelect");
   return sel ? sel.value : "none";
 }
+// Toujours pas de boucle sur une seule vidéo : la boucle est sur toute la séquence (voir playSignAtIndex).
 
 function applyVideoSpeed(value) {
   var videoEl = document.getElementById("avatarZoneVideo");
@@ -1151,16 +1176,17 @@ function ensureAnimationsVideoListLoaded() {
   return loadAnimationsVideoList();
 }
 
-function playGlbAnimationInAvatarZone(key, signNames, concepts, index) {
+function playGlbAnimationInAvatarZone(key, signNames, concepts, index, runId) {
   ensureAvatarReady();
   if (!scene || typeof THREE === "undefined" || !THREE.GLTFLoader) {
-    playFallbackSignAndNext(signNames, concepts, index);
+    playFallbackSignAndNext(signNames, concepts, index, runId);
     return;
   }
   if (avatar) avatar.visible = false;
   var apiBase = window.location.origin || "";
   var glbUrl = apiBase + "/api/animations/glb/" + encodeURIComponent(key);
   var loader = new THREE.GLTFLoader();
+  var rId = runId;
   loader.load(
     glbUrl,
     function (gltf) {
@@ -1189,13 +1215,13 @@ function playGlbAnimationInAvatarZone(key, signNames, concepts, index) {
         tempGlbModel = null;
         tempGlbMixer = null;
         if (avatar) avatar.visible = true;
-        playSignAtIndex(signNames, concepts, index + 1);
+        playSignAtIndex(signNames, concepts, index + 1, rId);
       }, Math.max(duration * 1000, 1800));
     },
     undefined,
     function () {
       if (avatar) avatar.visible = true;
-      playFallbackSignAndNext(signNames, concepts, index);
+      playFallbackSignAndNext(signNames, concepts, index, rId);
     }
   );
 }
@@ -1235,18 +1261,24 @@ function toggleAvatarPlayPause() {
   if (labelEl) labelEl.textContent = "Play";
 }
 
-function playAnimationSignInAvatarZone(key, signNames, concepts, index, advanceBy) {
+function playAnimationSignInAvatarZone(key, signNames, concepts, index, advanceBy, runId) {
   if (advanceBy == null) advanceBy = 1;
   var videoEl = document.getElementById("avatarZoneVideo");
   var done = false;
+  var rId = runId;
+  var onlyOneSign = signNames.length === 1;
   function goNext() {
     if (done) return;
     done = true;
     if (videoEl) videoEl.onended = null;
     hideVideoInAvatarZone();
-    playSignAtIndex(signNames, concepts, index + advanceBy);
+    playSignAtIndex(signNames, concepts, index + advanceBy, rId);
   }
-  showVideoInAvatarZone(key);
+  showVideoInAvatarZone(key, onlyOneSign);
+  if (onlyOneSign) {
+    isPlayingSequence = false;
+    return;
+  }
   if (videoEl) videoEl.onended = goNext;
   else setTimeout(goNext, 2500);
 }
@@ -1463,30 +1495,61 @@ async function translateWithGroq(text) {
   return cleanTranslation(raw.trim());
 }
 
+/** Traduit le texte en arabe via Groq (pour les sous-titres vidéo). */
+async function translateWithGroqToArabic(text) {
+  if (!text || !String(text).trim()) return "";
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${GROQ_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: "You are a translator. Translate the given text into Arabic (Modern Standard Arabic). Reply ONLY with the Arabic translation, no explanation or preamble."
+        },
+        {
+          role: "user",
+          content: "Translate to Arabic (reply only with the translation):\n\n" + String(text).trim()
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 256
+    })
+  });
+  if (!response.ok) {
+    const errBody = await response.json().catch(function () { return {}; });
+    const msg = errBody.error && errBody.error.message ? errBody.error.message : "Groq API " + response.status;
+    throw new Error(msg);
+  }
+  const data = await response.json();
+  const raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!raw) throw new Error("Réponse Groq invalide");
+  return String(raw).trim();
+}
+
 /**
- * Traduit le texte : dictionnaire (dictionary.js), puis FRENCH_TO_TUNIS si partiel, puis Groq LLM.
+ * Traduit le texte : dictionnaire prioritaire (dictionary.js), puis FRENCH_TO_TUNIS, Groq uniquement si rien trouvé dans le dictionnaire.
  * Retourne { translation, source: "dictionary" | "french_to_tunis" | "groq" }.
  */
 async function translateText(text) {
   if (typeof translateWithDictionary !== "function") {
     return { translation: await translateWithGroq(text), source: "groq" };
   }
+  // 1) Priorité au dictionnaire : dès qu'on a une traduction (même partielle), on l'utilise, pas de Groq
   var result = translateWithDictionary(text);
-  var fullyFound = result.usedDictionary && result.missing.length === 0 && result.translation;
-  if (fullyFound) {
-    return { translation: result.translation, source: "dictionary" };
+  if (result.usedDictionary && result.translation && result.translation.trim()) {
+    return { translation: result.translation.trim(), source: "dictionary" };
   }
+  // 2) Ensuite Tunis (inverse FR→Tunis) si dispo
   var resultTunis = translateWithFrenchToTunis(text);
-  var tunisFull = resultTunis.usedDictionary && resultTunis.missing.length === 0 && resultTunis.translation;
-  if (tunisFull) {
-    return { translation: resultTunis.translation, source: "french_to_tunis" };
+  if (resultTunis.usedDictionary && resultTunis.translation && resultTunis.translation.trim()) {
+    return { translation: resultTunis.translation.trim(), source: "french_to_tunis" };
   }
-  if (resultTunis.usedDictionary && resultTunis.translation && (!result.usedDictionary || resultTunis.missing.length < result.missing.length)) {
-    return { translation: resultTunis.translation, source: "french_to_tunis" };
-  }
-  if (result.usedDictionary && result.translation) {
-    return { translation: result.translation, source: "dictionary" };
-  }
+  // 3) Groq uniquement si rien trouvé dans le dictionnaire
   var translation = await translateWithGroq(text);
   return { translation: translation, source: "groq" };
 }
@@ -1850,7 +1913,7 @@ function ensureKeyNounsFromTranslation(translation, concepts) {
 // ================================
 async function processFullTranslation() {
   const inputText = document.getElementById("textInput").value.trim();
-  
+  currentSequenceRunId = Date.now();
   if (!inputText) {
     alert("Veuillez entrer du texte en dialecte tunisien");
     return;
@@ -1893,6 +1956,9 @@ async function processFullTranslation() {
     await ensureAnimationsVideoListLoaded();
     var signItems = buildSentenceSignItems(concepts);
     renderSentenceSignsStrip(signItems);
+    
+    // Afficher tout de suite inconnue.mp4 dans le lecteur principal (plus de placeholder)
+    showVideoInAvatarZone(FALLBACK_VIDEO_KEY);
     
     // ÉTAPE 4: Animer l'avatar (play sequence in main player)
     animateAvatarWithConcepts(concepts);
@@ -1960,10 +2026,17 @@ function findClipForSign(clips, signName) {
 const SIGN_DURATION_MS = 2200;
 var isPlayingSequence = false;
 var currentConceptsList = []; // pour afficher le mot en cours
+var currentSequenceRunId = 0; // invalidé à chaque nouvelle recherche pour fermer la boucle
 
-function playSignAtIndex(signNames, concepts, index) {
+function playSignAtIndex(signNames, concepts, index, runId) {
+  if (runId === undefined) runId = currentSequenceRunId;
   var currentEl = document.getElementById("currentSign");
   if (index >= signNames.length) {
+    // Boucle sur toute la séquence sauf si une nouvelle recherche a été faite
+    if (signNames.length > 0 && runId === currentSequenceRunId) {
+      playSignAtIndex(signNames, concepts, 0, runId);
+      return;
+    }
     isPlayingSequence = false;
     hideVideoInAvatarZone();
     if (tempGlbModel && tempGlbModel.parent) tempGlbModel.parent.remove(tempGlbModel);
@@ -1983,18 +2056,18 @@ function playSignAtIndex(signNames, concepts, index) {
   var phraseMatch = getAnimationKeyForConceptPhrase(concepts, index);
   if (phraseMatch) {
     if (currentEl) currentEl.textContent = "Signe : " + concepts.slice(index, index + phraseMatch.length).join(" ");
-    playAnimationSignInAvatarZone(phraseMatch.key, signNames, concepts, index, phraseMatch.length);
+    playAnimationSignInAvatarZone(phraseMatch.key, signNames, concepts, index, phraseMatch.length, runId);
     return;
   }
   var animationKey = getAnimationKeyForConcept(concept || wordDisplay);
   if (animationKey) {
-    playAnimationSignInAvatarZone(animationKey, signNames, concepts, index, 1);
+    playAnimationSignInAvatarZone(animationKey, signNames, concepts, index, 1, runId);
     return;
   }
 
   var glbKey = getGlbAnimationKeyForConcept(concept || wordDisplay);
   if (glbKey) {
-    playGlbAnimationInAvatarZone(glbKey, signNames, concepts, index);
+    playGlbAnimationInAvatarZone(glbKey, signNames, concepts, index, runId);
     return;
   }
 
@@ -2002,6 +2075,7 @@ function playSignAtIndex(signNames, concepts, index) {
   if (skeletonFile && avatar) {
     var apiBase = window.location.origin || "";
     var url = apiBase + "/api/skeleton_animation?name=" + encodeURIComponent(skeletonFile);
+    var rId = runId;
     fetch(url)
       .then(function (r) {
         if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
@@ -2011,21 +2085,24 @@ function playSignAtIndex(signNames, concepts, index) {
         if (motion.tracks) {
           playVideoMotion(motion);
           var durationMs = (motion.duration || 2) * 1000;
-          setTimeout(function () { playSignAtIndex(signNames, concepts, index + 1); }, Math.max(durationMs, 1500));
+          setTimeout(function () { playSignAtIndex(signNames, concepts, index + 1, rId); }, Math.max(durationMs, 1500));
           return;
         }
         throw new Error("Format invalide");
       })
       .catch(function () {
-        playFallbackSignAndNext(signNames, concepts, index);
+        playFallbackSignAndNext(signNames, concepts, index, rId);
       });
     return;
   }
 
-  playFallbackSignAndNext(signNames, concepts, index);
+  playFallbackSignAndNext(signNames, concepts, index, runId);
 }
 
-function playFallbackSignAndNext(signNames, concepts, index) {
+function playFallbackSignAndNext(signNames, concepts, index, runId) {
+  // Pas de vidéo pour ce concept (ex. "danse") → afficher inconnue.mp4 dans le lecteur
+  var onlyOneSign = signNames.length === 1;
+  showVideoInAvatarZone(FALLBACK_VIDEO_KEY, onlyOneSign);
   var played = false;
   if (mixer && avatar) {
     var clips = avatar.userData.animations || [];
@@ -2052,7 +2129,11 @@ function playFallbackSignAndNext(signNames, concepts, index) {
     }
   }
   if (avatar && !played) startFallbackSignAnimation();
-  setTimeout(function () { playSignAtIndex(signNames, concepts, index + 1); }, SIGN_DURATION_MS);
+  if (onlyOneSign) {
+    isPlayingSequence = false;
+    return;
+  }
+  setTimeout(function () { playSignAtIndex(signNames, concepts, index + 1, runId); }, SIGN_DURATION_MS);
 }
 
 // ================================
@@ -2080,7 +2161,7 @@ async function animateAvatarWithConcepts(concepts) {
   isPlayingSequence = true;
   await ensureSkeletonListLoaded();
   await ensureAnimationsVideoListLoaded();
-  playSignAtIndex(signNames, currentConceptsList, 0);
+  playSignAtIndex(signNames, currentConceptsList, 0, currentSequenceRunId);
 }
 
 // ================================
@@ -2141,6 +2222,8 @@ function clearVoiceInput() {
   if (chronoEl) chronoEl.textContent = "0:00";
   var btnMic = document.getElementById("btnMic");
   if (btnMic) btnMic.classList.remove("listening");
+  var hintEl = document.getElementById("voiceListeningHint");
+  if (hintEl) { hintEl.hidden = true; hintEl.setAttribute("aria-hidden", "true"); }
 }
 
 function stopVoiceChrono() {
@@ -2151,6 +2234,8 @@ function stopVoiceChrono() {
   voiceRecognitionActive = false;
   var btnMic = document.getElementById("btnMic");
   if (btnMic) btnMic.classList.remove("listening");
+  var hintEl = document.getElementById("voiceListeningHint");
+  if (hintEl) { hintEl.hidden = true; hintEl.setAttribute("aria-hidden", "true"); }
 }
 
 function startVoiceChrono() {
@@ -2189,6 +2274,8 @@ function startVoiceRecognition() {
     statusEl.className = "voice-status active";
     var btnMic = document.getElementById("btnMic");
     if (btnMic) btnMic.classList.add("listening");
+    var hintEl = document.getElementById("voiceListeningHint");
+    if (hintEl) { hintEl.hidden = false; hintEl.setAttribute("aria-hidden", "false"); }
     startVoiceChrono();
   };
   
@@ -2196,6 +2283,8 @@ function startVoiceRecognition() {
     stopVoiceChrono();
     var chronoEl = document.getElementById("voiceChrono");
     if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
+    var hintEl = document.getElementById("voiceListeningHint");
+    if (hintEl) { hintEl.hidden = true; hintEl.setAttribute("aria-hidden", "true"); }
     const transcript = event.results[0][0].transcript;
     document.getElementById("textInput").value = transcript;
     document.getElementById("voiceStatus").textContent = "✓ Texte capturé";
@@ -2210,6 +2299,8 @@ function startVoiceRecognition() {
     stopVoiceChrono();
     var chronoEl = document.getElementById("voiceChrono");
     if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
+    var hintEl = document.getElementById("voiceListeningHint");
+    if (hintEl) { hintEl.hidden = true; hintEl.setAttribute("aria-hidden", "true"); }
     console.error("Erreur reconnaissance:", event.error);
     var message = "Erreur de microphone";
     if (event.error === 'no-speech') message = "Aucune parole détectée";
@@ -2223,6 +2314,8 @@ function startVoiceRecognition() {
     stopVoiceChrono();
     var chronoEl = document.getElementById("voiceChrono");
     if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
+    var hintEl = document.getElementById("voiceListeningHint");
+    if (hintEl) { hintEl.hidden = true; hintEl.setAttribute("aria-hidden", "true"); }
     setTimeout(() => {
       document.getElementById("voiceStatus").textContent = "";
       document.getElementById("voiceStatus").className = "voice-status";
@@ -2342,7 +2435,17 @@ function handleGlobalKeydown(e) {
   }
   if (alt && e.key === "3") {
     e.preventDefault();
-    switchMainTab("realtime");
+    switchMainTab("asl");
+    return;
+  }
+  if (alt && e.key === "4") {
+    e.preventDefault();
+    switchMainTab("imageText");
+    return;
+  }
+  if (alt && e.key === "5") {
+    e.preventDefault();
+    switchMainTab("videoSubs");
     return;
   }
   if (alt && (e.key === "S" || e.key === "s")) {
@@ -2372,13 +2475,13 @@ function handleGlobalKeydown(e) {
 
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     var tabId = e.target.id;
-    var tabIds = ["tabTraduction", "tabDetection", "tabRealtime"];
+    var tabIds = ["tabTraduction", "tabDetection", "tabASL", "tabImageText", "tabVideoSubs"];
     var idx = tabIds.indexOf(tabId);
     if (idx >= 0) {
       e.preventDefault();
       if (e.key === "ArrowLeft") idx = Math.max(0, idx - 1);
-      else idx = Math.min(2, idx + 1);
-      switchMainTab(["traduction", "detection", "realtime"][idx]);
+      else idx = Math.min(4, idx + 1);
+      switchMainTab(["traduction", "detection", "asl", "imageText", "videoSubs"][idx]);
       var nextTab = document.getElementById(tabIds[idx]);
       if (nextTab) nextTab.focus();
     }
@@ -2398,17 +2501,32 @@ function toggleSettingsPanel() {
   backdrop.setAttribute("aria-hidden", !isOpen);
   panel.setAttribute("aria-hidden", !isOpen);
   if (fab) fab.setAttribute("aria-expanded", isOpen);
+  if (isOpen) syncSettingsPanelDisplay();
+}
+
+/** Met à jour l'affichage des valeurs dans le panneau Affichage (contrast %, etc.) */
+function syncSettingsPanelDisplay() {
+  var rng = document.getElementById("contrastRange");
+  var valEl = document.getElementById("contrastValue");
+  if (rng && valEl) {
+    var v = parseFloat(rng.value) || 1;
+    valEl.textContent = Math.round(v * 100) + "%";
+    rng.setAttribute("aria-valuenow", Math.round(v * 100));
+  }
 }
 function applyPageContrast(value) {
   var v = parseFloat(value) || 1;
+  v = Math.max(1, Math.min(1.5, v));
   var wrap = document.getElementById("pageContentWrap");
   if (wrap) {
-    wrap.style.setProperty("--page-contrast", v);
+    wrap.style.setProperty("--page-contrast", String(v));
     if (v !== 1) wrap.classList.add("page-contrast");
     else wrap.classList.remove("page-contrast");
   }
   var el = document.getElementById("contrastValue");
   if (el) el.textContent = Math.round(v * 100) + "%";
+  var rng = document.getElementById("contrastRange");
+  if (rng) { rng.value = String(v); rng.setAttribute("aria-valuenow", Math.round(v * 100)); }
   try { localStorage.setItem("voiceToSign_contrast", String(v)); } catch (_) {}
 }
 function applyDisplayMode(mode) {
@@ -2437,14 +2555,28 @@ function applyFontSize(value) {
 function loadSettingsFromStorage() {
   try {
     var mode = localStorage.getItem("voiceToSign_displayMode");
-    if (mode) applyDisplayMode(mode);
-    else document.body.classList.add("mode-sombre");
+    if (mode === "sombre" || mode === "clair" || mode === "nuit") applyDisplayMode(mode);
+    else applyDisplayMode("sombre");
     var c = localStorage.getItem("voiceToSign_contrast");
-    if (c) { var v = parseFloat(c); if (!isNaN(v) && v >= 1 && v <= 1.5) { var rng = document.getElementById("contrastRange"); if (rng) rng.value = v; applyPageContrast(v); } }
+    var v = parseFloat(c);
+    if (!isNaN(v) && v >= 1 && v <= 1.5) {
+      var rng = document.getElementById("contrastRange");
+      if (rng) rng.value = String(v);
+      applyPageContrast(v);
+    }
     var t = localStorage.getItem("voiceToSign_theme");
-    if (t) applyTheme(t);
+    if (t === "default" || t === "blue" || t === "purple" || t === "orange" || t === "green") applyTheme(t);
+    else applyTheme("default");
     var fs = localStorage.getItem("voiceToSign_fontSize");
-    if (fs) { var pct = parseInt(fs, 10); if (!isNaN(pct)) { applyFontSize(pct); var sel = document.getElementById("fontSizeSelect"); if (sel) sel.value = String(pct); } }
+    var pct = parseInt(fs, 10);
+    var sel = document.getElementById("fontSizeSelect");
+    if (!isNaN(pct) && pct >= 90 && pct <= 125) {
+      applyFontSize(pct);
+      if (sel) sel.value = String(pct);
+    } else {
+      applyFontSize(100);
+      if (sel) sel.value = "100";
+    }
   } catch (_) {}
 }
 
@@ -2934,6 +3066,53 @@ function applyWcagColors() {
 }
 
 // ================================
+// LECTURE DU NOM DES BOUTONS (icône haut-parleur sur chaque bouton)
+// ================================
+function getButtonAccessibleName(btn) {
+  var name = btn.getAttribute("aria-label");
+  if (name && name.trim()) return name.trim();
+  var clone = btn.cloneNode(true);
+  var speakIcons = clone.querySelectorAll(".btn-speak-label");
+  speakIcons.forEach(function (el) { el.remove(); });
+  return (clone.textContent || "").trim().replace(/\s+/g, " ") || btn.getAttribute("title") || "";
+}
+
+function speakButtonLabel(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  var btn = event.target.closest("button");
+  if (!btn) return;
+  var label = btn.getAttribute("data-speak-label") || getButtonAccessibleName(btn);
+  if (!label) return;
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(label);
+    u.lang = "fr-FR";
+    u.rate = 0.95;
+    var voices = window.speechSynthesis.getVoices();
+    var fr = voices.filter(function (v) { return v.lang.startsWith("fr"); })[0];
+    if (fr) u.voice = fr;
+    window.speechSynthesis.speak(u);
+  }
+}
+
+function injectSpeakIconsOnButtons() {
+  var buttons = document.querySelectorAll("button:not(.btn-speak-label-only)");
+  buttons.forEach(function (btn) {
+    if (btn.querySelector(".btn-speak-label")) return;
+    var name = btn.getAttribute("aria-label") || (btn.textContent || "").trim().replace(/\s+/g, " ");
+    if (name) btn.setAttribute("data-speak-label", name);
+    var span = document.createElement("span");
+    span.className = "btn-speak-label";
+    span.setAttribute("aria-label", "Lire le nom du bouton");
+    span.setAttribute("title", "Lire le nom du bouton");
+    span.innerHTML = "<i class=\"fas fa-volume-up\" aria-hidden=\"true\"></i>";
+    span.addEventListener("click", speakButtonLabel);
+    btn.appendChild(span);
+  });
+}
+
+// ================================
 // INITIALISATION
 // ================================
 function onDomReady() {
@@ -2945,6 +3124,8 @@ function onDomReady() {
   setTimeout(function () { showEyeCursorAsk(); }, 400);
 
   document.addEventListener("keydown", handleGlobalKeydown);
+  setupASLCapturePanel();
+  injectSpeakIconsOnButtons();
 
   function onResize() {
     const container = getSceneContainer();
@@ -2973,48 +3154,572 @@ function onDomReady() {
     });
   });
 
-  var detectionInput = document.getElementById("detectionVideoInput");
-  var detectionRunBtn = document.getElementById("detectionRunBtn");
-  var detectionPreview = document.getElementById("detectionPreview");
-  if (detectionInput && detectionRunBtn) {
-    detectionInput.addEventListener("change", function () {
-      detectionRunBtn.disabled = !(this.files && this.files[0]);
-      if (detectionPreview) {
-        detectionPreview.innerHTML = "";
-        if (this.files && this.files[0]) {
-          var v = document.createElement("video");
-          v.src = URL.createObjectURL(this.files[0]);
-          v.controls = true;
-          v.preload = "metadata";
-          v.style.maxWidth = "100%";
-          detectionPreview.appendChild(v);
-        }
-      }
+  setupTextToCharPanel();
+  setupImageTextPanel();
+  setupVideoSubsPanel();
+}
+
+// ================================
+// TEXTE TO CARACTÈRE — saisie texte/vocal → une image par caractère (dataset ArabicSign/data)
+// ================================
+var TEXT_TO_CHAR_ARABIC_MAP = {
+  "\u0627": "alif", "\u0623": "alif", "\u0625": "alif", "\u0622": "alif", "\u0621": "alif",
+  "\u0628": "ba2", "\u062A": "ta2", "\u062B": "thaaa", "\u062C": "jeeem", "\u062D": "haa2",
+  "\u062E": "khaaa", "\u062F": "daal", "\u0630": "thaal", "\u0631": "ra2", "\u0632": "zaay",
+  "\u0633": "seeen", "\u0634": "sheeen", "\u0635": "saaad", "\u0636": "dhaad", "\u0637": "dha2",
+  "\u0638": "dhaad", "\u0639": "aeyn", "\u063A": "ghayn", "\u0641": "fa2", "\u0642": "gaf",
+  "\u0643": "kaaaf", "\u0644": "laaam", "\u0645": "meeem", "\u0646": "nuun", "\u0647": "haa",
+  "\u0648": "waaw", "\u064A": "yaa", "\u0649": "yaa2"
+};
+var TEXT_TO_CHAR_LATIN_MAP = {
+  "alif": "alif", "a": "alif", "ba2": "ba2", "ba": "ba2", "b": "ba2", "ta2": "ta2", "ta": "ta2", "t": "ta2",
+  "thaaa": "thaaa", "th": "thaaa", "jeeem": "jeeem", "jeem": "jeeem", "j": "jeeem",
+  "haa2": "haa2", "haa": "haa", "dha2": "dha2", "daal": "daal", "dal": "daal", "d": "daal",
+  "thaal": "thaal", "ra2": "ra2", "ra": "ra2", "r": "ra2", "zaay": "zaay", "z": "zaay",
+  "seeen": "seeen", "seen": "seeen", "s": "seeen", "sheeen": "sheeen", "sheen": "sheeen", "sh": "sheeen",
+  "saaad": "saaad", "saad": "saaad", "dhaad": "dhaad", "dhad": "dhaad", "aeyn": "aeyn", "ain": "aeyn",
+  "ghayn": "ghayn", "ghain": "ghayn", "fa2": "fa2", "fa": "fa2", "f": "fa2", "gaf": "gaf", "g": "gaf",
+  "kaaaf": "kaaaf", "kaaf": "kaaaf", "k": "kaaaf", "laaam": "laaam", "laam": "laaam", "l": "laaam",
+  "laa": "laa", "meeem": "meeem", "meem": "meeem", "m": "meeem", "nuun": "nuun", "nun": "nuun", "n": "nuun",
+  "haa": "haa", "h": "haa", "waaw": "waaw", "waw": "waaw", "w": "waaw",
+  "yaa": "yaa", "ya": "yaa", "yaa2": "yaa2", "taa": "taa", "toott": "toott", "toot": "toott",
+  "alif_lam": "alif_lam", "al": "alif_lam", "khaaa": "khaaa", "kh": "khaaa"
+};
+
+function splitInputToLetters(text) {
+  var t = (text || "").trim();
+  if (!t) return [];
+  var out = [];
+  var hasArabic = /[\u0600-\u06FF]/.test(t);
+  if (hasArabic) {
+    for (var i = 0; i < t.length; i++) {
+      var c = t[i];
+      if (/\s/.test(c)) continue;
+      var folder = TEXT_TO_CHAR_ARABIC_MAP[c] || TEXT_TO_CHAR_ARABIC_MAP[c.toLowerCase ? c.toLowerCase() : c];
+      if (folder) out.push({ char: c, folder: folder });
+    }
+  } else {
+    var tokens = t.split(/\s+/);
+    for (var j = 0; j < tokens.length; j++) {
+      var tok = tokens[j].toLowerCase().replace(/[^a-z0-9_]/g, "");
+          if (!tok) continue;
+      var folder = TEXT_TO_CHAR_LATIN_MAP[tok];
+      if (!folder && tok.length === 1) folder = TEXT_TO_CHAR_LATIN_MAP[tok];
+      if (folder) out.push({ char: tok, folder: folder });
+    }
+  }
+  return out;
+}
+
+function updateTextToCharCounter(n) {
+  var el = document.getElementById("textToCharCounter");
+  if (el) el.textContent = n === 1 ? "1 caractère" : n + " caractère(s)";
+}
+
+var textToCharLoopIntervalId = null;
+var textToCharLoopItems = [];
+
+function stopTextToCharLoop() {
+  if (textToCharLoopIntervalId) {
+    clearInterval(textToCharLoopIntervalId);
+    textToCharLoopIntervalId = null;
+  }
+  textToCharLoopItems = [];
+  var placeholder = document.getElementById("textToCharViewerPlaceholder");
+  var img = document.getElementById("textToCharViewerImage");
+  var label = document.getElementById("textToCharViewerLabel");
+  if (placeholder) placeholder.style.display = "";
+  if (img) { img.style.display = "none"; img.removeAttribute("src"); }
+  if (label) label.textContent = "";
+}
+
+function clearTextToChar() {
+  var inputEl = document.getElementById("textToCharInput");
+  var container = document.getElementById("textToCharImages");
+  var errorEl = document.getElementById("textToCharError");
+  stopTextToCharLoop();
+  if (inputEl) inputEl.value = "";
+  if (container) container.innerHTML = "";
+  if (errorEl) { errorEl.style.display = "none"; errorEl.textContent = ""; }
+  updateTextToCharCounter(0);
+}
+
+function runTextToChar() {
+  var inputEl = document.getElementById("textToCharInput");
+  var container = document.getElementById("textToCharImages");
+  var loadingEl = document.getElementById("textToCharLoading");
+  var errorEl = document.getElementById("textToCharError");
+  if (!inputEl || !container) return;
+  var text = inputEl.value.trim();
+  var items = splitInputToLetters(text);
+  if (errorEl) errorEl.style.display = "none";
+  container.innerHTML = "";
+  updateTextToCharCounter(0);
+  if (items.length === 0) {
+    if (errorEl) { errorEl.textContent = "Entrez des lettres arabes ou des noms romanisés (ex: alif ba2)."; errorEl.style.display = "block"; }
+    return;
+  }
+  updateTextToCharCounter(items.length);
+  if (loadingEl) loadingEl.style.display = "block";
+  var apiBase = typeof getApiBase === "function" ? getApiBase() : (window.location.origin || "");
+  var viewerItems = items.map(function (item) {
+    return { char: item.char, folder: item.folder, url: apiBase + "/api/letter_image/" + encodeURIComponent(item.folder) };
+  });
+  items.forEach(function (item) {
+    var wrap = document.createElement("div");
+    wrap.className = "char-image-wrap";
+    var img = document.createElement("img");
+    img.alt = item.char + " (" + item.folder + ")";
+    img.src = apiBase + "/api/letter_image/" + encodeURIComponent(item.folder);
+    img.onerror = function () { img.style.background = "#333"; img.title = "Image non disponible"; };
+    var label = document.createElement("span");
+    label.className = "char-label";
+    label.textContent = item.char;
+    wrap.appendChild(img);
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+  });
+  if (loadingEl) loadingEl.style.display = "none";
+  stopTextToCharLoop();
+  textToCharLoopItems = viewerItems;
+  if (viewerItems.length > 0) {
+    var placeholder = document.getElementById("textToCharViewerPlaceholder");
+    var viewerImg = document.getElementById("textToCharViewerImage");
+    var viewerLabel = document.getElementById("textToCharViewerLabel");
+    if (placeholder) placeholder.style.display = "none";
+    if (viewerImg) viewerImg.style.display = "block";
+    var idx = 0;
+    function showNext() {
+      if (textToCharLoopItems.length === 0) return;
+      var it = textToCharLoopItems[idx];
+      if (viewerImg) { viewerImg.src = it.url; viewerImg.alt = it.char; }
+      if (viewerLabel) viewerLabel.textContent = it.char;
+      idx = (idx + 1) % textToCharLoopItems.length;
+    }
+    showNext();
+    textToCharLoopIntervalId = setInterval(showNext, 2500);
+  }
+}
+
+function startTextToCharVoice() {
+  var inputEl = document.getElementById("textToCharInput");
+  var micBtn = document.getElementById("textToCharMic");
+  var micIcon = document.getElementById("textToCharMicIcon");
+  var hintEl = document.getElementById("textToCharMicHint");
+  var statusEl = document.getElementById("textToCharMicStatus");
+  function setListening(on) {
+    if (micBtn) micBtn.classList.toggle("mic-listening", on);
+    if (micIcon) micIcon.className = on ? "fas fa-microphone-slash" : "fas fa-microphone";
+    if (hintEl) hintEl.style.display = on ? "none" : "";
+    if (statusEl) {
+      statusEl.hidden = !on;
+      statusEl.textContent = on ? "Écoute… Parlez maintenant." : "";
+      statusEl.className = "text-to-char-mic-status" + (on ? " is-listening" : "");
+    }
+  }
+  if (!inputEl) return;
+  if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+    alert("Reconnaissance vocale non supportée par ce navigateur.");
+    return;
+  }
+  var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = new Recognition();
+  rec.lang = "ar-SA";
+  rec.continuous = false;
+  rec.interimResults = false;
+  rec.onstart = function () { setListening(true); };
+  rec.onend = function () { setListening(false); };
+  rec.onerror = function () { setListening(false); };
+  rec.onresult = function (e) {
+    var t = (e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : "";
+    if (t) inputEl.value = (inputEl.value ? inputEl.value + " " : "") + t;
+  };
+  rec.start();
+}
+
+function setupTextToCharPanel() {
+  var btn = document.getElementById("textToCharSubmit");
+  if (btn) btn.addEventListener("click", runTextToChar);
+  var inputEl = document.getElementById("textToCharInput");
+  var container = document.getElementById("textToCharImages");
+  if (inputEl) {
+    inputEl.addEventListener("input", function () {
+      var items = splitInputToLetters(this.value.trim());
+      updateTextToCharCounter(items.length);
+      if (container) container.innerHTML = "";
+      stopTextToCharLoop();
     });
   }
 }
 
 // ================================
-// ONGLETS (Traduction / Détection vidéo / Détection en direct)
+// Image → Texte (upload image, OCR, affichage avec espacement et couleurs)
+// ================================
+var imageTextCurrentFontSize = 18;
+var imageTextExtractedText = "";
+
+function setupImageTextPanel() {
+  var fileInput = document.getElementById("imageTextFileInput");
+  var preview = document.getElementById("imageTextPreview");
+  var previewWrap = document.getElementById("imageTextPreviewWrap");
+  var extractBtn = document.getElementById("imageTextExtractBtn");
+  var fileNameSpan = document.getElementById("imageTextFileName");
+  if (fileInput) {
+    fileInput.addEventListener("change", function () {
+      var f = this.files && this.files[0];
+      if (!f) {
+        if (fileNameSpan) fileNameSpan.textContent = "Aucun fichier";
+        if (previewWrap) previewWrap.style.display = "none";
+        if (extractBtn) extractBtn.style.display = "none";
+        return;
+      }
+      if (fileNameSpan) fileNameSpan.textContent = f.name;
+      if (previewWrap) previewWrap.style.display = "block";
+      if (extractBtn) extractBtn.style.display = "inline-flex";
+      if (preview) {
+        preview.alt = "Aperçu " + f.name;
+        var url = URL.createObjectURL(f);
+        preview.onload = function () { URL.revokeObjectURL(url); };
+        preview.src = url;
+      }
+    });
+  }
+  var letterSpacing = document.getElementById("imageTextLetterSpacing");
+  var lineHeight = document.getElementById("imageTextLineHeight");
+  if (letterSpacing) letterSpacing.addEventListener("input", function () {
+    var v = document.getElementById("imageTextLetterSpacingVal");
+    if (v) v.textContent = this.value;
+    applyImageTextStyle();
+  });
+  if (lineHeight) lineHeight.addEventListener("input", function () {
+    var v = document.getElementById("imageTextLineHeightVal");
+    if (v) v.textContent = this.value;
+    applyImageTextStyle();
+  });
+  var lsVal = document.getElementById("imageTextLetterSpacingVal");
+  var lhVal = document.getElementById("imageTextLineHeightVal");
+  if (lsVal && letterSpacing) lsVal.textContent = letterSpacing.value;
+  if (lhVal && lineHeight) lhVal.textContent = lineHeight.value;
+}
+
+function runImageTextOCR() {
+  var fileInput = document.getElementById("imageTextFileInput");
+  var statusEl = document.getElementById("imageTextOCRStatus");
+  var outputEl = document.getElementById("imageTextOutput");
+  var extractBtn = document.getElementById("imageTextExtractBtn");
+  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+    if (statusEl) { statusEl.style.display = "block"; statusEl.textContent = "Choisissez d'abord une image."; }
+    return;
+  }
+  if (typeof Tesseract === "undefined") {
+    if (statusEl) { statusEl.style.display = "block"; statusEl.textContent = "Tesseract.js non chargé. Vérifiez la connexion."; }
+    return;
+  }
+  if (statusEl) { statusEl.style.display = "block"; statusEl.textContent = "Extraction en cours…"; }
+  if (extractBtn) extractBtn.disabled = true;
+  var file = fileInput.files[0];
+  Tesseract.recognize(file, "fra+eng", { logger: function (m) {
+    if (m.status && statusEl) statusEl.textContent = m.status;
+  } }).then(function (result) {
+    var text = (result.data && result.data.text) ? result.data.text.trim() : "";
+    imageTextExtractedText = text;
+    if (outputEl) {
+      outputEl.innerHTML = "";
+      outputEl.classList.remove("image-text-output-placeholder-wrap");
+      if (!text) {
+        outputEl.innerHTML = "<p class=\"image-text-output-placeholder\">Aucun texte détecté dans l'image.</p>";
+      } else {
+        var p = document.createElement("p");
+        p.className = "image-text-output-text";
+        p.textContent = text;
+        outputEl.appendChild(p);
+        applyImageTextStyle();
+      }
+    }
+    if (statusEl) statusEl.textContent = "Texte extrait.";
+    if (extractBtn) extractBtn.disabled = false;
+  }).catch(function (err) {
+    if (statusEl) statusEl.textContent = "Erreur : " + (err && err.message ? err.message : "OCR impossible");
+    if (extractBtn) extractBtn.disabled = false;
+  });
+}
+
+function applyImageTextStyle() {
+  var outputEl = document.getElementById("imageTextOutput");
+  var letterSpacing = document.getElementById("imageTextLetterSpacing");
+  var lineHeight = document.getElementById("imageTextLineHeight");
+  var colorInput = document.getElementById("imageTextColor");
+  var colorHex = document.getElementById("imageTextColorHex");
+  if (!outputEl) return;
+  var textEl = outputEl.querySelector(".image-text-output-text");
+  if (!textEl) return;
+  var ls = letterSpacing ? parseInt(letterSpacing.value, 10) : 2;
+  var lh = lineHeight ? parseInt(lineHeight.value, 10) : 140;
+  var col = colorInput ? colorInput.value : "#886183";
+  if (colorHex) colorHex.value = col;
+  textEl.style.letterSpacing = ls + "px";
+  textEl.style.lineHeight = lh + "%";
+  textEl.style.fontSize = imageTextCurrentFontSize + "px";
+  textEl.style.color = col;
+}
+
+function setImageTextFontSize(delta) {
+  imageTextCurrentFontSize = Math.max(10, Math.min(72, imageTextCurrentFontSize + delta));
+  var valEl = document.getElementById("imageTextFontSizeVal");
+  if (valEl) valEl.textContent = imageTextCurrentFontSize;
+  applyImageTextStyle();
+}
+
+function applyImageTextStyleFromHex() {
+  var hex = document.getElementById("imageTextColorHex");
+  var colorInput = document.getElementById("imageTextColor");
+  if (!hex || !colorInput) return;
+  var v = (hex.value || "").trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+    colorInput.value = v;
+    applyImageTextStyle();
+  }
+}
+
+// ================================
+// Vidéo → Sous-titres (upload vidéo + SRT/VTT, mot en cours animé et en couleur)
+// ================================
+var videoSubsCues = [];
+var videoSubsArabicCache = {};
+var videoSubsLastArabicRequest = null;
+var videoSubsPlayer = null;
+
+function parseSrtText(text) {
+  var cues = [];
+  var block = (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split(/\n\n+/);
+  for (var i = 0; i < block.length; i++) {
+    var lines = block[i].trim().split("\n");
+    if (lines.length < 2) continue;
+    var match = lines[1].match(/^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!match) continue;
+    var start = parseInt(match[1], 10) * 3600 + parseInt(match[2], 10) * 60 + parseInt(match[3], 10) + parseInt(match[4], 10) / 1000;
+    var end = parseInt(match[5], 10) * 3600 + parseInt(match[6], 10) * 60 + parseInt(match[7], 10) + parseInt(match[8], 10) / 1000;
+    var textLine = lines.slice(2).join(" ").replace(/<[^>]+>/g, "").trim();
+    if (textLine) cues.push({ start: start, end: end, text: textLine });
+  }
+  return cues;
+}
+
+function parseVttText(text) {
+  var cues = [];
+  var lines = (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  var i = 0;
+  while (i < lines.length) {
+    var line = lines[i].trim();
+    var match = line.match(/^(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2})\.(\d{3})/);
+    if (match) {
+      var start = parseInt(match[1], 10) * 60 + parseInt(match[2], 10) + parseInt(match[3], 10) / 1000;
+      var end = parseInt(match[4], 10) * 60 + parseInt(match[5], 10) + parseInt(match[6], 10) / 1000;
+      var parts = [];
+      i++;
+      while (i < lines.length && lines[i].trim()) { parts.push(lines[i].trim()); i++; }
+      var textLine = parts.join(" ").replace(/<[^>]+>/g, "").trim();
+      if (textLine) cues.push({ start: start, end: end, text: textLine });
+    }
+    i++;
+  }
+  return cues;
+}
+
+function getVideoSubsCueAt(time) {
+  for (var j = 0; j < videoSubsCues.length; j++) {
+    if (time >= videoSubsCues[j].start && time <= videoSubsCues[j].end)
+      return { cue: videoSubsCues[j], index: j };
+  }
+  return null;
+}
+
+function updateVideoSubsDisplay() {
+  var player = document.getElementById("videoSubsPlayer");
+  var contentEl = document.getElementById("videoSubsSubtitleContent");
+  var arabicEl = document.getElementById("videoSubsArabicTranslation");
+  if (!player || !contentEl) return;
+  var t = player.currentTime;
+  var result = getVideoSubsCueAt(t);
+  if (!result) {
+    contentEl.innerHTML = "";
+    contentEl.textContent = "";
+    if (arabicEl) { arabicEl.textContent = ""; arabicEl.classList.remove("video-subs-arabic--loading"); }
+    return;
+  }
+  var cue = result.cue;
+  var duration = cue.end - cue.start;
+  var progress = duration > 0 ? (t - cue.start) / duration : 0;
+  var words = cue.text.split(/\s+/).filter(Boolean);
+  var currentWordIndex = progress >= 1 ? words.length - 1 : Math.min(Math.floor(progress * words.length), words.length - 1);
+  contentEl.innerHTML = "";
+  for (var w = 0; w < words.length; w++) {
+    var span = document.createElement("span");
+    span.className = "video-subs-word" + (w === currentWordIndex ? " video-subs-word--current" : "");
+    span.textContent = words[w];
+    contentEl.appendChild(span);
+    if (w < words.length - 1) contentEl.appendChild(document.createTextNode(" "));
+  }
+  var cueText = cue.text.trim();
+  if (!arabicEl) return;
+  if (videoSubsArabicCache[cueText] !== undefined) {
+    arabicEl.textContent = videoSubsArabicCache[cueText];
+    arabicEl.classList.remove("video-subs-arabic--loading");
+    return;
+  }
+  arabicEl.textContent = "…";
+  arabicEl.classList.add("video-subs-arabic--loading");
+  var requestId = cueText;
+  videoSubsLastArabicRequest = requestId;
+  translateWithGroqToArabic(cueText).then(function (ar) {
+    videoSubsArabicCache[cueText] = ar;
+    if (videoSubsLastArabicRequest === requestId && arabicEl) {
+      arabicEl.textContent = ar;
+      arabicEl.classList.remove("video-subs-arabic--loading");
+    }
+  }).catch(function () {
+    if (videoSubsLastArabicRequest === requestId && arabicEl) {
+      arabicEl.textContent = "";
+      arabicEl.classList.remove("video-subs-arabic--loading");
+    }
+  });
+}
+
+function transcribeVideoSubs() {
+  var videoInput = document.getElementById("videoSubsVideoInput");
+  var btn = document.getElementById("videoSubsTranscribeBtn");
+  var statusEl = document.getElementById("videoSubsTranscribeStatus");
+  var loadingEl = document.getElementById("videoSubsTranscribeLoading");
+  var contentEl = document.getElementById("videoSubsSubtitleContent");
+  if (!videoInput || !videoInput.files || !videoInput.files[0]) {
+    if (statusEl) statusEl.textContent = "Choisissez d'abord une vidéo.";
+    return;
+  }
+  var formData = new FormData();
+  formData.append("video", videoInput.files[0]);
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "";
+  if (loadingEl) loadingEl.style.display = "block";
+  if (contentEl) contentEl.textContent = "Transcription en cours…";
+
+  var apiBase = typeof getApiBase === "function" ? getApiBase() : (window.location.origin || "");
+  var ctrl = new AbortController();
+  var timeoutId = setTimeout(function () { ctrl.abort(); }, 600000);
+  fetch(apiBase + "/api/video/transcribe", {
+    method: "POST",
+    body: formData,
+    signal: ctrl.signal
+  }).then(function (r) {
+    clearTimeout(timeoutId);
+    return r.json().then(function (data) {
+      if (!r.ok) throw new Error(data.error || "Erreur " + r.status);
+      return data;
+    });
+  }).then(function (data) {
+    clearTimeout(timeoutId);
+    videoSubsArabicCache = {};
+    videoSubsLastArabicRequest = null;
+    videoSubsCues = (data.cues || []).map(function (c) {
+      return { start: c.start, end: c.end, text: c.text || "" };
+    });
+    if (contentEl) contentEl.textContent = videoSubsCues.length ? "" : "Aucune parole détectée.";
+    if (statusEl) statusEl.textContent = videoSubsCues.length ? "Transcription terminée. Lancez la lecture." : "Aucun texte transcrit.";
+    updateVideoSubsDisplay();
+  }).catch(function (err) {
+    clearTimeout(timeoutId);
+    if (contentEl) contentEl.textContent = "";
+    if (statusEl) statusEl.textContent = "Erreur : " + (err.message || "transcription impossible");
+    videoSubsCues = [];
+  }).finally(function () {
+    clearTimeout(timeoutId);
+    if (btn) btn.disabled = false;
+    if (loadingEl) loadingEl.style.display = "none";
+  });
+}
+
+function setupVideoSubsPanel() {
+  var videoInput = document.getElementById("videoSubsVideoInput");
+  var player = document.getElementById("videoSubsPlayer");
+  var placeholder = document.getElementById("videoSubsPlaceholder");
+  var transcribeBtn = document.getElementById("videoSubsTranscribeBtn");
+  videoSubsPlayer = player;
+
+  if (videoInput) {
+    videoInput.addEventListener("change", function () {
+      var f = this.files && this.files[0];
+      var nameEl = document.getElementById("videoSubsVideoName");
+      if (nameEl) nameEl.textContent = f ? f.name : "Aucune vidéo";
+      if (transcribeBtn) transcribeBtn.disabled = !f;
+      var container = player && player.closest(".video-subs-video-container");
+      if (!f) {
+        if (player) player.removeAttribute("src");
+        if (placeholder) placeholder.style.display = "";
+        if (container) container.classList.remove("has-video");
+        videoSubsArabicCache = {};
+        videoSubsLastArabicRequest = null;
+        var arabicEl = document.getElementById("videoSubsArabicTranslation");
+        if (arabicEl) arabicEl.textContent = "";
+        return;
+      }
+      var url = URL.createObjectURL(f);
+      if (player) {
+        player.src = url;
+        player.style.display = "block";
+        player.load();
+        player.onloadeddata = function () { URL.revokeObjectURL(url); };
+      }
+      if (placeholder) placeholder.style.display = "none";
+      if (container) container.classList.add("has-video");
+    });
+  }
+  if (player) {
+    player.addEventListener("timeupdate", updateVideoSubsDisplay);
+    player.addEventListener("seeked", updateVideoSubsDisplay);
+  }
+}
+
+// ================================
+// ONGLETS (Traduction / Texte to caractère / Sign-to-Text / Image → Texte / Vidéo → Sous-titres)
 // ================================
 function switchMainTab(tabId) {
   var panelTraduction = document.getElementById("panelTraduction");
   var panelDetection = document.getElementById("panelDetection");
-  var panelRealtime = document.getElementById("panelRealtime");
+  var panelASL = document.getElementById("panelASL");
+  var panelImageText = document.getElementById("panelImageText");
+  var panelVideoSubs = document.getElementById("panelVideoSubs");
   var tabTraduction = document.getElementById("tabTraduction");
   var tabDetection = document.getElementById("tabDetection");
-  var tabRealtime = document.getElementById("tabRealtime");
-  var panels = [panelTraduction, panelDetection, panelRealtime];
-  var tabs = [tabTraduction, tabDetection, tabRealtime];
-  var ids = ["traduction", "detection", "realtime"];
+  var tabASL = document.getElementById("tabASL");
+  var tabImageText = document.getElementById("tabImageText");
+  var tabVideoSubs = document.getElementById("tabVideoSubs");
+  var panels = [panelTraduction, panelDetection, panelASL, panelImageText, panelVideoSubs];
+  var tabs = [tabTraduction, tabDetection, tabASL, tabImageText, tabVideoSubs];
+  var ids = ["traduction", "detection", "asl", "imageText", "videoSubs"];
   if (!panelTraduction || !panelDetection) return;
-  panels.forEach(function (p) { if (p) p.setAttribute("hidden", ""); });
+  panels.forEach(function (p) {
+    if (p) {
+      p.setAttribute("hidden", "");
+      p.style.display = "none";
+    }
+  });
   tabs.forEach(function (t) { if (t) { t.classList.remove("active"); t.setAttribute("aria-selected", "false"); } });
   var idx = ids.indexOf(tabId);
-  if (idx === 0) { if (panelTraduction) panelTraduction.removeAttribute("hidden"); if (tabTraduction) { tabTraduction.classList.add("active"); tabTraduction.setAttribute("aria-selected", "true"); } }
-  else if (idx === 1) { if (panelDetection) panelDetection.removeAttribute("hidden"); if (tabDetection) { tabDetection.classList.add("active"); tabDetection.setAttribute("aria-selected", "true"); } }
-  else if (idx === 2) { if (panelRealtime) panelRealtime.removeAttribute("hidden"); if (tabRealtime) { tabRealtime.classList.add("active"); tabRealtime.setAttribute("aria-selected", "true"); } }
-  if (tabId === "realtime") stopRealtimeDetection();
+  var activePanel = null;
+  var activeTab = null;
+  if (idx === 0) { activePanel = panelTraduction; activeTab = tabTraduction; }
+  else if (idx === 1) { activePanel = panelDetection; activeTab = tabDetection; }
+  else if (idx === 2) { activePanel = panelASL; activeTab = tabASL; }
+  else if (idx === 3) { activePanel = panelImageText; activeTab = tabImageText; }
+  else if (idx === 4) { activePanel = panelVideoSubs; activeTab = tabVideoSubs; }
+  if (activePanel) {
+    activePanel.removeAttribute("hidden");
+    activePanel.style.display = "";
+  }
+  if (activeTab) {
+    activeTab.classList.add("active");
+    activeTab.setAttribute("aria-selected", "true");
+  }
+  if (tabId !== "asl") stopASLDetection();
 }
 
 // ================================
@@ -3400,6 +4105,207 @@ function stopRealtimeDetection() {
   var stopBtn = document.getElementById("realtimeStopBtn");
   if (startBtn) startBtn.disabled = false;
   if (stopBtn) stopBtn.disabled = true;
+}
+
+// ================================
+// Sign-to-Text ASL — même interface que ArabicSign (Camera Feed + Prediction Results)
+// ================================
+var aslStream = null;
+var aslCaptureIntervalId = null;
+var aslRealtimeMode = false;
+var aslSending = false;
+
+function aslDisplayPredictionResults(data) {
+  var mainPred = document.getElementById("aslMainPrediction");
+  var mainBar = document.getElementById("aslMainConfidenceBar");
+  var mainConf = document.getElementById("aslMainConfidence");
+  var topEl = document.getElementById("aslTopPredictions");
+  if (!mainPred || !mainBar || !mainConf) return;
+  mainPred.textContent = data.prediction || data.letter_en || "unknown";
+  var pct = Math.round((data.confidence != null ? data.confidence * 100 : data.score) || 0);
+  mainBar.style.width = pct + "%";
+  mainConf.textContent = pct + "%";
+  mainBar.style.backgroundColor = pct > 80 ? "#2ecc71" : (pct > 50 ? "#f39c12" : "#e74c3c");
+  if (topEl) {
+    topEl.innerHTML = "";
+    var list = data.top_predictions || [];
+    var mainLabel = data.prediction || data.letter_en;
+    list.forEach(function (pred) {
+      if (pred.label === mainLabel) return;
+      var predPct = Math.round((pred.confidence || 0) * 100);
+      var div = document.createElement("div");
+      div.className = "asl-prediction-item";
+      div.innerHTML = "<span class=\"asl-prediction-label\">" + pred.label + "</span><div class=\"asl-prediction-confidence-bar-container\"><div class=\"asl-prediction-confidence-bar\" style=\"width:" + predPct + "%\"></div></div><span class=\"asl-prediction-confidence\">" + predPct + "%</span>";
+      topEl.appendChild(div);
+    });
+  }
+}
+
+function aslSendImageForPrediction(dataUrlOrB64, callback) {
+  if (aslSending) return;
+  var b64 = dataUrlOrB64;
+  if (b64.indexOf("data:") === 0 && b64.indexOf(",") >= 0) b64 = b64.split(",")[1];
+  aslSending = true;
+  var mainPred = document.getElementById("aslMainPrediction");
+  if (mainPred) mainPred.textContent = "Processing...";
+  var apiBase = window.location.origin || "";
+  fetch(apiBase + "/api/asl/predict", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: b64 })
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    aslSending = false;
+    aslDisplayPredictionResults(data);
+    if (callback) callback();
+  }).catch(function () { aslSending = false; if (callback) callback(); });
+}
+
+function aslToggleCamera() {
+  var video = document.getElementById("aslVideo");
+  var startBtn = document.getElementById("aslStartCamera");
+  var captureBtn = document.getElementById("aslCaptureImage");
+  if (!video || !startBtn) return;
+  if (aslStream) {
+    aslStream.getTracks().forEach(function (t) { t.stop(); });
+    aslStream = null;
+    video.srcObject = null;
+    startBtn.innerHTML = "<i class=\"fas fa-play\"></i> Start Camera";
+    if (captureBtn) captureBtn.disabled = true;
+    if (aslRealtimeMode) aslStopRealtimeCapture();
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false }).then(function (stream) {
+    aslStream = stream;
+    video.srcObject = stream;
+    startBtn.innerHTML = "<i class=\"fas fa-stop\"></i> Stop Camera";
+    if (captureBtn) captureBtn.disabled = false;
+    if (aslRealtimeMode) aslStartRealtimeCapture();
+  }).catch(function (err) {
+    alert("Caméra : " + (err.message || "Erreur"));
+  });
+}
+
+function aslTo64x64GrayCanvas(sourceCanvasOrImage) {
+  var c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 64;
+  var ctx = c.getContext("2d");
+  ctx.filter = "grayscale(100%)";
+  ctx.drawImage(sourceCanvasOrImage, 0, 0, 64, 64);
+  return c;
+}
+
+function aslCaptureImage() {
+  var video = document.getElementById("aslVideo");
+  var canvas = document.getElementById("aslCanvas");
+  var capturedImg = document.getElementById("aslCapturedImage");
+  if (!aslStream || !video || !canvas || !capturedImg) return;
+  var w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) return;
+  canvas.width = w;
+  canvas.height = h;
+  var ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, w, h);
+  var dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  var thumb64 = aslTo64x64GrayCanvas(canvas);
+  capturedImg.src = thumb64.toDataURL("image/jpeg", 0.9);
+  aslSendImageForPrediction(dataUrl);
+}
+
+function aslHandleFileSelect(e) {
+  var file = e.target.files[0];
+  var fileNameEl = document.getElementById("aslFileName");
+  var capturedImg = document.getElementById("aslCapturedImage");
+  if (fileNameEl) fileNameEl.textContent = file ? file.name : "No file chosen";
+  if (!file || !capturedImg) return;
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    var img = new Image();
+    img.onload = function () {
+      var thumb64 = aslTo64x64GrayCanvas(img);
+      capturedImg.src = thumb64.toDataURL("image/jpeg", 0.9);
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function aslHandleFormSubmit(e) {
+  e.preventDefault();
+  var fileInput = document.getElementById("aslFileUpload");
+  var file = fileInput && fileInput.files[0];
+  if (!file) {
+    alert("Veuillez choisir une image.");
+    return;
+  }
+  var capturedImg = document.getElementById("aslCapturedImage");
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    var img = new Image();
+    img.onload = function () {
+      var thumb64 = aslTo64x64GrayCanvas(img);
+      capturedImg.src = thumb64.toDataURL("image/jpeg", 0.9);
+      aslSendImageForPrediction(ev.target.result);
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function aslStartRealtimeCapture() {
+  if (aslCaptureIntervalId) return;
+  aslCaptureIntervalId = setInterval(function () {
+    if (aslStream && aslRealtimeMode) aslCaptureImage();
+  }, 1000);
+}
+
+function aslStopRealtimeCapture() {
+  if (aslCaptureIntervalId) {
+    clearInterval(aslCaptureIntervalId);
+    aslCaptureIntervalId = null;
+  }
+}
+
+function aslToggleRealtimeMode() {
+  var toggle = document.getElementById("aslRealtimeToggle");
+  var status = document.getElementById("aslRealtimeStatus");
+  if (!toggle || !status) return;
+  aslRealtimeMode = toggle.checked;
+  status.textContent = aslRealtimeMode ? "On" : "Off";
+  if (aslRealtimeMode && aslStream) aslStartRealtimeCapture();
+  else aslStopRealtimeCapture();
+}
+
+function setupASLCapturePanel() {
+  var startBtn = document.getElementById("aslStartCamera");
+  var captureBtn = document.getElementById("aslCaptureImage");
+  var fileInput = document.getElementById("aslFileUpload");
+  var form = document.getElementById("aslUploadForm");
+  var toggle = document.getElementById("aslRealtimeToggle");
+  if (startBtn) startBtn.addEventListener("click", aslToggleCamera);
+  if (captureBtn) captureBtn.addEventListener("click", aslCaptureImage);
+  if (fileInput) fileInput.addEventListener("change", aslHandleFileSelect);
+  if (form) form.addEventListener("submit", aslHandleFormSubmit);
+  if (toggle) toggle.addEventListener("change", aslToggleRealtimeMode);
+}
+
+function stopASLDetection() {
+  if (aslStream) {
+    aslStream.getTracks().forEach(function (t) { t.stop(); });
+    aslStream = null;
+  }
+  var video = document.getElementById("aslVideo");
+  if (video) video.srcObject = null;
+  var startBtn = document.getElementById("aslStartCamera");
+  var captureBtn = document.getElementById("aslCaptureImage");
+  if (startBtn) { startBtn.innerHTML = "<i class=\"fas fa-play\"></i> Start Camera"; startBtn.disabled = false; }
+  if (captureBtn) captureBtn.disabled = true;
+  aslStopRealtimeCapture();
+  var rtToggle = document.getElementById("aslRealtimeToggle");
+  if (rtToggle) rtToggle.checked = false;
+  var rtStatus = document.getElementById("aslRealtimeStatus");
+  if (rtStatus) rtStatus.textContent = "Off";
+  aslRealtimeMode = false;
 }
 
 function runVideoSignDetection() {
