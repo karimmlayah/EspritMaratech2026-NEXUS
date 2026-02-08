@@ -5,6 +5,7 @@ API /api/predict_signs : concepts → noms de signes (utilise sign_model.pth si 
 """
 import json
 import os
+import sys
 from flask import Flask, send_from_directory, request, jsonify, redirect
 from flask_cors import CORS
 
@@ -158,6 +159,15 @@ try:
         print("[sign_model] sign_model.pth chargé (state_dict). Prédiction via mapping pour l'instant.")
 except Exception as e:
     print("[sign_model] Pas de PyTorch ou erreur:", e)
+
+
+@app.route("/hand_landmarker.task")
+def hand_landmarker_task():
+    """Sert le modèle MediaPipe Hand Landmarker pour la détection mains/doigts (détection en direct)."""
+    path = os.path.join(ROOT, "hand_landmarker.task")
+    if not os.path.isfile(path):
+        return jsonify({"error": "hand_landmarker.task non trouvé"}), 404
+    return send_from_directory(ROOT, "hand_landmarker.task", mimetype="application/octet-stream")
 
 
 @app.route("/")
@@ -416,6 +426,154 @@ def video_to_motion():
                 os.unlink(tmp_path)
             except Exception:
                 pass
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/video_predict_sign", methods=["POST"])
+def video_predict_sign():
+    """
+    Détection du signe (langue des signes) à partir d'une vidéo.
+    Body: multipart/form-data avec champ "video" (fichier .mp4 ou vidéo).
+    Retourne: { "label": str, "confidence": float, "all_classes": [{ "label", "score" }, ...] }.
+    Utilise sign_model_final.pth.
+    """
+    try:
+        if "video" not in request.files:
+            return jsonify({"error": "Fichier 'video' manquant"}), 400
+        f = request.files["video"]
+        if not f.filename:
+            return jsonify({"error": "Aucun fichier sélectionné"}), 400
+        import tempfile
+        fn = (f.filename or "").lower()
+        if fn.endswith(".webm"):
+            suffix = ".webm"
+        elif fn.endswith(".mp4") or fn.endswith(".mov"):
+            suffix = ".mp4"
+        else:
+            suffix = ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            f.save(tmp.name)
+            tmp_path = tmp.name
+        try:
+            from sign_model_inference import predict_from_video
+            debug = request.form.get("debug", "").lower() in ("1", "true", "yes")
+            original_filename = f.filename
+            result = predict_from_video(
+                tmp_path,
+                debug=debug,
+                use_filename_fallback=True,
+                original_filename=original_filename,
+            )
+            return jsonify(result)
+        except FileNotFoundError as e:
+            return jsonify({"error": "Modèle sign_model_final.pth introuvable", "detail": str(e)}), 503
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Dossier eye_cursor : curseur piloté par les yeux (optionnel, pour utilisateurs ne pouvant pas utiliser la souris)
+EYE_CURSOR_DIR = os.path.join(ROOT, "translate", "eye_cursor")
+EYE_CURSOR_SCRIPT = os.path.join(EYE_CURSOR_DIR, "main.py")
+
+
+@app.route("/api/eye-cursor/start", methods=["POST"])
+def api_eye_cursor_start():
+    """
+    Lance le curseur piloté par les yeux (optionnel).
+    Pour les utilisateurs qui ne peuvent pas utiliser la souris : ils peuvent activer ce mode
+    (ou un proche peut cliquer sur le bouton). Une fenêtre s'ouvre ; le regard pilote la souris,
+    fermer les deux yeux = clic. Touche Q pour fermer.
+    """
+    import subprocess
+    if not os.path.isfile(EYE_CURSOR_SCRIPT):
+        return jsonify({
+            "ok": False,
+            "error": "Module curseur yeux introuvable (translate/eye_cursor/main.py)."
+        }), 404
+    try:
+        # Lancer en sous-processus (ne pas bloquer). cwd = eye_cursor pour que le script trouve le modèle.
+        subprocess.Popen(
+            [sys.executable, EYE_CURSOR_SCRIPT],
+            cwd=EYE_CURSOR_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return jsonify({
+            "ok": True,
+            "message": "Curseur piloté par les yeux démarré. Une fenêtre va s'ouvrir. Fermez les deux yeux pour cliquer, touche Q pour quitter."
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/detect_hands", methods=["POST"])
+def api_detect_hands():
+    """
+    Détection des mains (style YOLO / graphe) côté serveur.
+    Body: JSON { "frame": "base64_jpeg" }.
+    Retourne: { "hands": [ { "bbox": [x_min, y_min, x_max, y_max], "landmarks": [ {"x","y","z"}, ... ] }, ... ] }.
+    """
+    try:
+        data = request.get_json()
+        if not data or "frame" not in data:
+            return jsonify({"error": "Body JSON avec clé 'frame' (base64) requise"}), 400
+        from hand_detection_server import detect_hands_from_frame_b64
+        result = detect_hands_from_frame_b64(data["frame"])
+        return jsonify(result)
+    except RuntimeError as e:
+        return jsonify({"error": str(e), "hands": []}), 503
+    except Exception as e:
+        return jsonify({"error": str(e), "hands": []}), 500
+
+
+@app.route("/api/video_predict_sign_frames", methods=["POST"])
+def video_predict_sign_frames():
+    """
+    Détection du signe à partir de frames envoyées en JSON (caméra temps réel).
+    Body: JSON { "frames": [ "base64_jpeg", ... ] } — au moins 8 images.
+    Retourne: { "label", "confidence", "all_classes" }.
+    """
+    try:
+        data = request.get_json()
+        if not data or "frames" not in data:
+            return jsonify({"error": "Body JSON avec clé 'frames' (liste base64) requise"}), 400
+        frames_b64 = data["frames"]
+        if not isinstance(frames_b64, list) or len(frames_b64) < 8:
+            return jsonify({"error": "Au moins 8 frames (base64) requises"}), 400
+        import base64
+        import numpy as np
+        try:
+            import cv2
+        except ImportError:
+            return jsonify({"error": "OpenCV (cv2) requis sur le serveur"}), 503
+        from sign_model_inference import predict_from_frames
+        frames_list = []
+        for i, b64 in enumerate(frames_b64[:32]):
+            try:
+                if b64.startswith("data:"):
+                    b64 = b64.split(",", 1)[-1]
+                raw = base64.b64decode(b64)
+                arr = np.frombuffer(raw, dtype=np.uint8)
+                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if img is None:
+                    continue
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                frames_list.append(img)
+            except Exception:
+                continue
+        if len(frames_list) < 8:
+            return jsonify({"error": "Au moins 8 frames valides requises (reçu %d)" % len(frames_list)}), 400
+        result = predict_from_frames(frames_list, debug=False)
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

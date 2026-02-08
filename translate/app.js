@@ -794,12 +794,30 @@ function playSelectedAnatomie() {
 var ANIMATION_VIDEO_KEYS = ["analyse", "attention", "caisse_assurance_maladie", "CIN"];
 var CONCEPT_TO_ANIMATION_KEY = {
   analyse: "analyse",
+  analyses: "analyse",
   attention: "attention",
   caisse: "caisse_assurance_maladie",
   assurance: "caisse_assurance_maladie",
   maladie: "caisse_assurance_maladie",
   "caisse_assurance_maladie": "caisse_assurance_maladie",
-  cin: "CIN"
+  cin: "CIN",
+  "rendez-vous": "RDV",
+  rendezvous: "RDV",
+  rdv: "RDV"
+};
+/** Semantic / lemma fallback: plural or synonym → canonical concept for video lookup (used when direct match fails). */
+var CONCEPT_LEMMA_FOR_VIDEO = {
+  analyses: "analyse",
+  vaccins: "vaccin",
+  vitamines: "vitamine",
+  médicaments: "médicament",
+  medicaments: "medicament",
+  ordonnances: "ordonnance médicale",
+  résultats: "résultat",
+  resultats: "résultat",
+  problèmes: "problèmes de santé",
+  problemes: "problèmes de santé",
+  rdvs: "RDV"
 };
 /** Toutes les clés vidéo chargées depuis /api/animations/list (pour matching concept + liste affichée) */
 var allAnimationVideoKeys = [];
@@ -831,6 +849,8 @@ var PHRASE_TO_VIDEO_KEY = {
   "qu est ce qui est passé": "qu'est ce qui est passé",
   "quand": "quand",
   "rdv": "RDV",
+  "rendez-vous": "RDV",
+  "rendez vous": "RDV",
   "question reponse": "question réponse",
   "question réponse": "question réponse",
   "responsabilite": "responsabilité",
@@ -903,7 +923,97 @@ function getAnimationKeyForConcept(concept) {
     if (normalizeConcept(key) === n) return key;
     if (normalizeVideoKeyForMatch(key) === normalizePhraseForVideoMatch(concept)) return key;
   }
+  var lemma = CONCEPT_LEMMA_FOR_VIDEO[n];
+  if (lemma) return getAnimationKeyForConcept(lemma);
+  var nNoAccent = (n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (CONCEPT_LEMMA_FOR_VIDEO[nNoAccent]) return getAnimationKeyForConcept(CONCEPT_LEMMA_FOR_VIDEO[nNoAccent]);
+  if (n.length > 1 && n.slice(-1) === "s") {
+    var singular = n.slice(0, -1);
+    var keyFromSingular = CONCEPT_TO_ANIMATION_KEY[singular] || (ANIMATION_VIDEO_KEYS.indexOf(singular) !== -1 ? singular : null);
+    if (keyFromSingular) return keyFromSingular;
+    for (var j = 0; j < allAnimationVideoKeys.length; j++) {
+      if (normalizeConcept(allAnimationVideoKeys[j]) === singular) return allAnimationVideoKeys[j];
+    }
+  }
   return null;
+}
+
+/**
+ * Builds the list of sign items from a sentence's concepts (same logic as playSignAtIndex).
+ * Each item = one "sign" to show: either a phrase or a single word, with video key if available.
+ * Returns [{ label: string, videoKey: string|null, concept: string }].
+ */
+function buildSentenceSignItems(concepts) {
+  if (!concepts || !concepts.length) return [];
+  var items = [];
+  var i = 0;
+  while (i < concepts.length) {
+    var phraseMatch = getAnimationKeyForConceptPhrase(concepts, i);
+    if (phraseMatch) {
+      var phraseLabel = concepts.slice(i, i + phraseMatch.length).join(" ");
+      items.push({ label: phraseLabel, videoKey: phraseMatch.key, concept: phraseLabel });
+      i += phraseMatch.length;
+      continue;
+    }
+    var concept = concepts[i];
+    var animationKey = getAnimationKeyForConcept(concept);
+    items.push({ label: concept, videoKey: animationKey, concept: concept });
+    i += 1;
+  }
+  return items;
+}
+
+/** Renders the "sentence signs" strip: only concepts that have a sign video (no placeholder cards). */
+function renderSentenceSignsStrip(items) {
+  var container = document.getElementById("sentenceSignsStrip");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!items || items.length === 0) {
+    container.classList.remove("has-items");
+    return;
+  }
+  var withVideo = items.filter(function (item) { return item.videoKey; });
+  if (withVideo.length === 0) {
+    container.classList.remove("has-items");
+    return;
+  }
+  container.classList.add("has-items");
+  var apiBase = typeof getApiBase === "function" ? getApiBase() : (window.location.origin || "");
+  withVideo.forEach(function (item) {
+    var card = document.createElement("div");
+    card.className = "sentence-sign-card";
+    card.setAttribute("data-concept", item.concept || item.label);
+    var labelEl = document.createElement("span");
+    labelEl.className = "sentence-sign-label";
+    labelEl.textContent = item.label;
+    card.appendChild(labelEl);
+    var videoWrap = document.createElement("div");
+    videoWrap.className = "sentence-sign-video-wrap";
+    var video = document.createElement("video");
+    video.className = "sentence-sign-video";
+    video.src = apiBase + "/api/animations/video/" + encodeURIComponent(item.videoKey);
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.muted = true;
+    video.setAttribute("aria-label", "Signe : " + item.label);
+    videoWrap.appendChild(video);
+    var playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "sentence-sign-play";
+    playBtn.innerHTML = "<i class=\"fas fa-play\"></i>";
+    playBtn.title = "Lire le signe : " + item.label;
+    playBtn.setAttribute("aria-label", "Lire le signe : " + item.label);
+    playBtn.addEventListener("click", function () {
+      showVideoInAvatarZone(item.videoKey);
+      var videoEl = document.getElementById("avatarZoneVideo");
+      if (videoEl) { videoEl.currentTime = 0; videoEl.play(); }
+      var currentEl = document.getElementById("currentSign");
+      if (currentEl) currentEl.textContent = "Signe : " + item.label;
+    });
+    videoWrap.appendChild(playBtn);
+    card.appendChild(videoWrap);
+    container.appendChild(card);
+  });
 }
 
 function getGlbAnimationKeyForConcept(concept) {
@@ -1354,20 +1464,31 @@ async function translateWithGroq(text) {
 }
 
 /**
- * Traduit le texte : d'abord dictionnaire (dictionary.js), si non trouvé ou partiel → Groq LLM.
- * Retourne { translation, source: "dictionary" | "groq" }.
+ * Traduit le texte : dictionnaire (dictionary.js), puis FRENCH_TO_TUNIS si partiel, puis Groq LLM.
+ * Retourne { translation, source: "dictionary" | "french_to_tunis" | "groq" }.
  */
 async function translateText(text) {
   if (typeof translateWithDictionary !== "function") {
     return { translation: await translateWithGroq(text), source: "groq" };
   }
-  const result = translateWithDictionary(text);
-  const fullyFound = result.usedDictionary && result.missing.length === 0 && result.translation;
+  var result = translateWithDictionary(text);
+  var fullyFound = result.usedDictionary && result.missing.length === 0 && result.translation;
   if (fullyFound) {
     return { translation: result.translation, source: "dictionary" };
   }
-  const translation = await translateWithGroq(text);
-  return { translation, source: "groq" };
+  var resultTunis = translateWithFrenchToTunis(text);
+  var tunisFull = resultTunis.usedDictionary && resultTunis.missing.length === 0 && resultTunis.translation;
+  if (tunisFull) {
+    return { translation: resultTunis.translation, source: "french_to_tunis" };
+  }
+  if (resultTunis.usedDictionary && resultTunis.translation && (!result.usedDictionary || resultTunis.missing.length < result.missing.length)) {
+    return { translation: resultTunis.translation, source: "french_to_tunis" };
+  }
+  if (result.usedDictionary && result.translation) {
+    return { translation: result.translation, source: "dictionary" };
+  }
+  var translation = await translateWithGroq(text);
+  return { translation: translation, source: "groq" };
 }
 
 // ================================
@@ -1383,16 +1504,20 @@ async function extractConceptsForSigns(text) {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Extrais les concepts clés du texte français pour la langue des signes.
+              text: `Sépare cette phrase française en concepts pour la langue des signes (un signe par concept).
 Texte: "${text}"
 
-Réponds UNIQUEMENT par un tableau JSON de mots-clés (verbes à l'infinitif, noms).
-Exemple de format: ["bonjour", "aller", "hôpital", "aide"]`
+RÈGLES:
+- Retourne UNIQUEMENT les noms et les mots interrogatifs, sous forme de liste.
+- Inclus: mots interrogatifs (quand, comment, où, pourquoi, combien) et noms importants (résultats, analyses, santé, rendez-vous, médecin, vaccin, etc.).
+- N'inclus AUCUN verbe (aurons, avoir, être, seront, etc.) ni articles (le, les, des).
+- Pour "Quand aurons-nous les résultats des analyses ?" → ["quand", "résultats", "analyses"]
+- Réponds UNIQUEMENT par un tableau JSON. Exemple: ["quand", "résultats", "analyses"]`
             }]
           }],
           systemInstruction: {
             parts: [{
-              text: "Tu extrais des concepts pour la langue des signes. Réponds uniquement par un tableau JSON, sans texte avant ou après. Exemple: [\"bonjour\", \"aide\"]"
+              text: "Tu sépares la traduction en concepts pour la langue des signes. Retourne uniquement un tableau JSON de noms et mots interrogatifs, sans verbes ni articles. Exemple pour 'Quand aurons-nous les résultats des analyses ?' : [\"quand\", \"résultats\", \"analyses\"]. Pas de texte avant ou après le JSON."
             }]
           },
           generationConfig: {
@@ -1440,7 +1565,284 @@ function getConceptsFromShortTranslation(translation) {
     var n = normalizeConcept(words[i]);
     if (n && out.indexOf(n) === -1) out.push(n);
   }
-  return out.slice(0, 6);
+  return normalizeConceptsForSigns(out.slice(0, 12));
+}
+
+// ================================
+// LEMMATIZATION / NORMALIZATION: merge multi-word expressions, remove stopwords
+// ================================
+/** French stopwords typically without a dedicated sign (removed from concept list). */
+var SIGN_STOPWORDS = new Set([
+  "est", "sont", "et", "ou", "le", "la", "les", "un", "une", "des", "du", "de", "da", "à", "a", "en", "au", "aux",
+  "ce", "cette", "ces", "son", "sa", "ses", "mon", "ma", "mes", "ton", "ta", "tes", "notre", "votre", "leur", "leurs",
+  "il", "elle", "on", "ils", "elles", "je", "tu", "nous", "vous", "me", "te", "se", "y", "lui", "que", "qui", "dont",
+  "pas", "ne", "plus", "très", "trop", "bien", "mal", "peu", "tout", "toute", "tous", "toutes", "autre", "même",
+  "avec", "sans", "pour", "par", "sur", "sous", "dans", "chez", "entre", "vers", "depuis", "pendant", "avant", "après"
+]);
+
+/** Conjugated verb forms: exclude from sign concepts (rule: do not take verbs). */
+var SIGN_VERB_FORMS = new Set([
+  "avoir", "être", "être", "faire", "dire", "aller", "voir", "savoir", "pouvoir", "falloir", "vouloir", "venir",
+  "est", "sont", "sera", "seront", "serons", "serai", "seriez", "été", "suis", "es", "sommes", "êtes", "fut", "furent", "soit", "soient", "étant",
+  "ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "avions", "aviez", "avaient", "eus", "eut", "eûmes", "eûtes", "eurent",
+  "aurai", "auras", "aura", "aurons", "aurez", "auront", "aurais", "aurait", "aurions", "auriez", "auraient",
+  "avoir", "eu", "ayant",
+  "fait", "font", "fais", "faisons", "faites", "ferai", "feront", "ferons", "faisais", "faisait", "faisions", "faisiez", "faisaient",
+  "dit", "dis", "disons", "dites", "disait", "disaient", "dira", "diront",
+  "va", "vont", "vas", "allons", "allez", "allé", "allait", "allaient", "ira", "iront", "irai", "irons",
+  "vu", "vois", "voyons", "voyez", "voyait", "voyaient", "verra", "verront",
+  "sait", "savons", "savez", "savent", "savais", "savait", "savions", "saviez", "savaient", "sut", "surent", "saura", "sauront",
+  "peux", "peut", "pouvons", "pouvez", "peuvent", "pouvais", "pouvait", "pouvions", "pouviez", "pouvaient", "put", "purent", "pourra", "pourront",
+  "faut", "fallu", "fallait", "faudra", "faudrait",
+  "veux", "veut", "voulons", "voulez", "veulent", "voulais", "voulait", "voulions", "vouliez", "voulaient", "voulut", "voulurent", "voudra", "voudront",
+  "viens", "vient", "venons", "venez", "viennent", "venu", "venais", "venait", "venions", "veniez", "venaient", "vint", "vinrent", "viendra", "viendront"
+]);
+
+/**
+ * Multi-word phrases: consecutive concept tokens to merge into one (e.g. "rendez" + "vous" → "rendez-vous").
+ * Order by length descending so longer phrases are matched first.
+ */
+var MULTI_WORD_PHRASES = [
+  { words: ["rendez", "vous"], merge: "rendez-vous" },
+  { words: ["rendezvous"], merge: "rendez-vous" },
+  { words: ["date", "de", "naissance"], merge: "date de naissance" },
+  { words: ["prénom", "et", "nom"], merge: "prénom et nom" },
+  { words: ["prenom", "et", "nom"], merge: "prénom et nom" },
+  { words: ["ou", "avez", "vous", "mal"], merge: "où avez-vous mal" },
+  { words: ["où", "avez", "vous", "mal"], merge: "où avez-vous mal" },
+  { words: ["langue", "des", "signes"], merge: "langue des signes" },
+  { words: ["positif", "négatif"], merge: "positif négatif" },
+  { words: ["positif", "negatif"], merge: "positif négatif" },
+  { words: ["question", "réponse"], merge: "question réponse" },
+  { words: ["question", "reponse"], merge: "question réponse" },
+  { words: ["problèmes", "de", "santé"], merge: "problèmes de santé" },
+  { words: ["problemes", "de", "sante"], merge: "problèmes de santé" },
+  { words: ["régime", "amaigrissant"], merge: "régime amaigrissant" },
+  { words: ["regime", "amaigrissant"], merge: "régime amaigrissant" },
+  { words: ["ordonnance", "médicale"], merge: "ordonnance médicale" },
+  { words: ["ordonnance", "medicale"], merge: "ordonnance médicale" },
+  { words: ["caisse", "nationale", "d", "assurance", "maladie"], merge: "caisse nationale d'assurance-maladie" },
+  { words: ["salut", "ça", "va"], merge: "salut ça va" },
+  { words: ["salut", "ca", "va"], merge: "salut ça va" },
+  { words: ["gel", "hydroalcoolique"], merge: "gel hydroalcoolique" },
+  { words: ["implant", "cochléaire"], merge: "implant cochléaire" },
+  { words: ["implant", "cochleaire"], merge: "implant cochléaire" },
+  { words: ["masque", "médical"], merge: "masque médical" },
+  { words: ["masque", "medical"], merge: "masque médical" },
+  { words: ["relation", "sexuelle"], merge: "relation sexuelle" },
+  { words: ["en", "pleine", "forme"], merge: "en pleine forme" },
+  { words: ["qu", "est", "ce", "qui", "est", "passé"], merge: "qu'est ce qui est passé" },
+  { words: ["information", "et"], merge: "information et" }
+];
+const FRENCH_TO_TUNIS = {
+  // Corps
+  "tête": ["ras"],
+  "yeux": ["3inin"],
+  "nez": ["mankhar"],
+  "bouche": ["fomm"],
+  "dents": ["snan"],
+  "main": ["yed"],
+  "bras": ["dhra3"],
+  "dos": ["dhar"],
+  "ventre": ["batn"],
+  "jambe": ["se9"],
+  "pied": ["rijel"],
+
+  // Symptômes
+  "douleur": ["waja3"],
+  "fièvre": ["7rara"],
+  "fatigué": ["ta3ban"],
+  "toux": ["s3al"],
+  "mal à la tête": ["waja3 ras"],
+  "mal au ventre": ["waja3 batn"],
+
+  // Médecine
+  "médecin": ["tbib", "doktor"],
+  "hôpital": ["sbitar"],
+  "pharmacie": ["saidliya"],
+  "médicament": ["dwa"],
+  "ordonnance": ["wasfa"],
+  "analyse": ["ta7lil"],
+  "urgence": ["7ala mosta3jla"],
+
+  // Questions
+  "où avez-vous mal": ["win youja3ek"],
+  "depuis quand": ["men wa9tèch"],
+  "avez-vous de la fièvre": ["3andek 7rara"],
+  "quand": ["wa9tèch"],
+  "pourquoi": ["3lech"],
+  "comment": ["kifech"],
+  "combien": ["9addech"],
+
+  // Phrases
+  "je ne comprends pas": ["ma nefhemch"],
+  "parlez lentement": ["ehki b chwaya"],
+  "aidez-moi": ["3awnouni"],
+  "c'est urgent": ["7aja mosta3jla"],
+  "où est l'hôpital": ["win sbitar"],
+
+  // Salutations
+  "bonjour": ["aslema"],
+  "merci": ["3aychek"],
+  "au revoir": ["besslema"],
+
+  // Verbes
+  "parler": ["ne7ki"],
+  "aller": ["nemchi"],
+  "venir": ["iji"],
+  "manger": ["nekoul"],
+  "boire": ["neshreb"],
+  "attendre": ["nestanna"],
+  "chercher": ["nlawwej"],
+  "appeler": ["n3ayyet"],
+  "aider": ["n3awen"]
+};
+
+/** Tunisian → French map built from FRENCH_TO_TUNIS (used when main dictionary misses). */
+var TUNISIAN_TO_FRENCH_FROM_TUNIS = {};
+(function () {
+  for (var french in FRENCH_TO_TUNIS) {
+    var variants = FRENCH_TO_TUNIS[french];
+    if (!Array.isArray(variants)) continue;
+    for (var i = 0; i < variants.length; i++) {
+      var v = (variants[i] || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
+      if (v) TUNISIAN_TO_FRENCH_FROM_TUNIS[v] = french;
+    }
+  }
+})();
+
+/**
+ * Translate Tunisian → French using FRENCH_TO_TUNIS (reverse map).
+ * Returns { translation, usedDictionary, missing } like translateWithDictionary.
+ */
+function translateWithFrenchToTunis(input) {
+  var normalized = (input || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return { translation: "", usedDictionary: false, missing: [] };
+  var exact = TUNISIAN_TO_FRENCH_FROM_TUNIS[normalized];
+  if (exact) return { translation: exact, usedDictionary: true, missing: [] };
+  var noPunct = normalized.replace(/[.?!,;:]+$/, "").trim();
+  if (noPunct && TUNISIAN_TO_FRENCH_FROM_TUNIS[noPunct])
+    return { translation: TUNISIAN_TO_FRENCH_FROM_TUNIS[noPunct], usedDictionary: true, missing: [] };
+  var words = normalized.split(/\s+/);
+  var translated = [];
+  var missing = [];
+  for (var w = 0; w < words.length; w++) {
+    var tw = TUNISIAN_TO_FRENCH_FROM_TUNIS[words[w]];
+    if (tw) translated.push(tw);
+    else if (words[w].length > 0) missing.push(words[w]);
+  }
+  if (translated.length === 0 && missing.length > 0)
+    return { translation: "", usedDictionary: false, missing: [normalized] };
+  return {
+    translation: translated.join(" "),
+    usedDictionary: translated.length > 0,
+    missing: missing
+  };
+}
+
+function normalizeWordForPhraseMatch(w) {
+  return String(w || "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/g, "");
+}
+
+/** Merges multi-word expressions and removes stopwords from the concept list (lemmatization step). */
+function normalizeConceptsForSigns(concepts) {
+  if (!concepts || !concepts.length) return concepts;
+  var raw = concepts.map(function (c) { return String(c).trim().toLowerCase(); }).filter(Boolean);
+  if (raw.length === 0) return concepts;
+  var out = [];
+  var i = 0;
+  while (i < raw.length) {
+    var matched = false;
+    for (var p = 0; p < MULTI_WORD_PHRASES.length; p++) {
+      var phrase = MULTI_WORD_PHRASES[p];
+      var len = phrase.words.length;
+      if (i + len > raw.length) continue;
+      var slice = raw.slice(i, i + len);
+      var allMatch = true;
+      for (var j = 0; j < len; j++) {
+        if (normalizeWordForPhraseMatch(slice[j]) !== normalizeWordForPhraseMatch(phrase.words[j])) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) {
+        out.push(phrase.merge);
+        i += len;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      var w = raw[i];
+      var wNorm = normalizeWordForPhraseMatch(w);
+      var isStop = SIGN_STOPWORDS.has(w) || SIGN_STOPWORDS.has(wNorm);
+      var isVerb = SIGN_VERB_FORMS.has(w) || SIGN_VERB_FORMS.has(wNorm);
+      if (wNorm && !isStop && !isVerb) out.push(w);
+      i += 1;
+    }
+  }
+  return out.length ? out : concepts;
+}
+
+/** Key nouns that have signs: if they appear in the translation but are missing from concepts, add them (rule: always take these). */
+var SIGN_KEY_NOUNS = [
+  "analyse", "analyses", "résultats", "resultats", "résultat", "resultat", "quand", "rendez-vous", "vaccin", "vitamine",
+  "santé", "sante", "médecin", "medecin", "médicament", "medicament", "ordonnance", "hôpital", "hopital", "date", "naissance",
+  "prénom", "prenom", "nom", "poids", "taille", "stress", "solution", "prévention", "prevention", "question", "réponse", "reponse",
+  "attention", "cin", "caisse", "assurance", "maladie", "sourd", "langue", "signes", "positif", "négatif", "negatif",
+  "évaluation", "evaluation", "responsabilité", "responsabilite", "interprète", "interprete", "malentendant", "handicap",
+  "implant", "cochléaire", "cochleaire", "gel", "hydroalcoolique", "information"
+];
+/** Key phrases (video key = phrase as used in animations folder): if translation contains these, add as one concept. */
+var SIGN_KEY_PHRASES = [
+  "qu'est ce qui est passé",
+  "qu est ce qui est passé",
+  "où avez-vous mal",
+  "ou avez vous mal",
+  "date de naissance",
+  "rendez-vous",
+  "langue des signes",
+  "salut ça va",
+  "question réponse"
+];
+function normalizeForKeyNounMatch(s) {
+  return String(s || "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]/g, "");
+}
+/** Ensures key nouns and key phrases present in the translation are in the concept list. */
+function ensureKeyNounsFromTranslation(translation, concepts) {
+  if (!translation || !translation.trim()) return concepts;
+  var conceptSet = new Set((concepts || []).map(function (c) { return normalizeForKeyNounMatch(c); }));
+  var transNorm = translation.trim().toLowerCase().replace(/['']/g, " ");
+  var added = [];
+
+  for (var p = 0; p < SIGN_KEY_PHRASES.length; p++) {
+    var phrase = SIGN_KEY_PHRASES[p];
+    var phraseNorm = phrase.toLowerCase().replace(/['']/g, " ").trim();
+    if (transNorm.indexOf(phraseNorm) !== -1 || transNorm.indexOf(phraseNorm.replace(/\s+/g, " ")) !== -1) {
+      var phraseKey = normalizeForKeyNounMatch(phrase);
+      if (!conceptSet.has(phraseKey)) {
+        conceptSet.add(phraseKey);
+        added.push(phrase);
+      }
+    }
+  }
+
+  var words = transNorm.replace(/[.?!,;:'"]/g, " ").split(/\s+/).filter(function (w) { return w.length > 2; });
+  var keyNormToCanonical = {};
+  for (var j = 0; j < SIGN_KEY_NOUNS.length; j++) {
+    var k = SIGN_KEY_NOUNS[j];
+    keyNormToCanonical[normalizeForKeyNounMatch(k)] = k;
+  }
+  for (var i = 0; i < words.length; i++) {
+    var n = normalizeForKeyNounMatch(words[i]);
+    if (conceptSet.has(n)) continue;
+    if (keyNormToCanonical[n]) {
+      conceptSet.add(n);
+      added.push(keyNormToCanonical[n]);
+    }
+  }
+  if (added.length === 0) return concepts;
+  return concepts.concat(added);
 }
 
 // ================================
@@ -1465,29 +1867,37 @@ async function processFullTranslation() {
     const { translation, source } = await translateText(inputText);
 
     // Afficher la traduction française
-    const sourceLabel = source === "dictionary" ? "dictionnaire" : "Groq";
+    const sourceLabel = source === "dictionary" ? "dictionnaire" : (source === "french_to_tunis" ? "dictionnaire (Tunis)" : "Groq");
     document.getElementById("translationResult").innerHTML =
       `<span class="translation-main">${translation}</span><span class="translation-source">${sourceLabel}</span>`;
     document.getElementById("translationResult").className = "lang-text translation-text success";
     
-    // ÉTAPE 2: Concepts pour les signes (mot traduit = signe à afficher)
+    // ÉTAPE 2: Concepts pour les signes (sentence → list of words, then lemmatize: merge phrases, remove stopwords)
     var words = translation.trim().split(/\s+/);
     var concepts;
     if (words.length <= 4) {
-      // Texte court : utiliser les mots traduits comme concepts (le mot = le signe)
       concepts = getConceptsFromShortTranslation(translation);
+      concepts = ensureKeyNounsFromTranslation(translation, concepts);
       if (concepts.length === 0) concepts = [translation.trim().toLowerCase()];
     } else {
       concepts = await extractConceptsForSigns(translation);
+      concepts = normalizeConceptsForSigns(concepts);
+      concepts = ensureKeyNounsFromTranslation(translation, concepts);
     }
+    if (concepts.length === 0) concepts = [translation.trim().toLowerCase()];
     
     document.getElementById("conceptsResult").textContent = 
-      "🎭 Signes : " + concepts.join(", ");
+      concepts.join(", ");
     
-    // ÉTAPE 3: Animer l'avatar (affiche le signe pour chaque concept/mot)
+    // ÉTAPE 3: Build and show the set of videos (one per word/phrase)
+    await ensureAnimationsVideoListLoaded();
+    var signItems = buildSentenceSignItems(concepts);
+    renderSentenceSignsStrip(signItems);
+    
+    // ÉTAPE 4: Animer l'avatar (play sequence in main player)
     animateAvatarWithConcepts(concepts);
     
-    // ÉTAPE 4: Historique
+    // ÉTAPE 5: Historique
     saveToHistory(inputText, translation, concepts);
     
   } catch (error) {
@@ -1496,7 +1906,7 @@ async function processFullTranslation() {
       `<span class="translation-error">❌ ${error.message}</span>`;
     document.getElementById("translationResult").className = "lang-text translation-text error";
     document.getElementById("conceptsResult").textContent = "";
-    
+    renderSentenceSignsStrip([]);
     console.error("Process error:", error);
   } finally {
     // Désactiver le chargement
@@ -1719,6 +2129,46 @@ function updateHistoryDisplay() {
 // ================================
 // RECONNAISSANCE VOCALE
 // ================================
+var voiceChronoIntervalId = null;
+var voiceChronoStartTime = 0;
+var voiceRecognitionActive = false;
+
+function clearVoiceInput() {
+  document.getElementById("textInput").value = "";
+  var statusEl = document.getElementById("voiceStatus");
+  if (statusEl) { statusEl.textContent = ""; statusEl.className = "voice-status"; }
+  var chronoEl = document.getElementById("voiceChrono");
+  if (chronoEl) chronoEl.textContent = "0:00";
+  var btnMic = document.getElementById("btnMic");
+  if (btnMic) btnMic.classList.remove("listening");
+}
+
+function stopVoiceChrono() {
+  if (voiceChronoIntervalId) {
+    clearInterval(voiceChronoIntervalId);
+    voiceChronoIntervalId = null;
+  }
+  voiceRecognitionActive = false;
+  var btnMic = document.getElementById("btnMic");
+  if (btnMic) btnMic.classList.remove("listening");
+}
+
+function startVoiceChrono() {
+  voiceChronoStartTime = Date.now();
+  voiceRecognitionActive = true;
+  var chronoEl = document.getElementById("voiceChrono");
+  if (!chronoEl) return;
+  chronoEl.textContent = "0:00";
+  chronoEl.classList.add("voice-chrono--active");
+  voiceChronoIntervalId = setInterval(function () {
+    if (!voiceRecognitionActive) return;
+    var sec = Math.floor((Date.now() - voiceChronoStartTime) / 1000);
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    chronoEl.textContent = m + ":" + (s < 10 ? "0" : "") + s;
+  }, 1000);
+}
+
 function startVoiceRecognition() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
     alert("La reconnaissance vocale n'est pas supportée par votre navigateur");
@@ -1728,48 +2178,54 @@ function startVoiceRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const recognition = new SpeechRecognition();
   
-  // Configurer pour l'arabe (le tunisien n'a pas de code spécifique)
-  recognition.lang = "ar"; // Arabe standard
+  recognition.lang = "ar";
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
   
-  // État
   recognition.onstart = () => {
-    document.getElementById("voiceStatus").textContent = "🎤 Écoute en cours... Parlez en tunisien";
-    document.getElementById("voiceStatus").className = "voice-status active";
+    var statusEl = document.getElementById("voiceStatus");
+    statusEl.textContent = "🎤 Écoute… Parlez en dialecte tunisien";
+    statusEl.className = "voice-status active";
+    var btnMic = document.getElementById("btnMic");
+    if (btnMic) btnMic.classList.add("listening");
+    startVoiceChrono();
   };
   
-  // Résultat
   recognition.onresult = (event) => {
+    stopVoiceChrono();
+    var chronoEl = document.getElementById("voiceChrono");
+    if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
     const transcript = event.results[0][0].transcript;
     document.getElementById("textInput").value = transcript;
     document.getElementById("voiceStatus").textContent = "✓ Texte capturé";
     document.getElementById("voiceStatus").className = "voice-status success";
-    
-    // Lancer la traduction après un court délai
     setTimeout(() => {
       processFullTranslation();
       document.getElementById("voiceStatus").textContent = "";
     }, 800);
   };
   
-  // Erreurs
   recognition.onerror = (event) => {
+    stopVoiceChrono();
+    var chronoEl = document.getElementById("voiceChrono");
+    if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
     console.error("Erreur reconnaissance:", event.error);
-    let message = "Erreur de microphone";
+    var message = "Erreur de microphone";
     if (event.error === 'no-speech') message = "Aucune parole détectée";
     if (event.error === 'audio-capture') message = "Microphone non disponible";
     if (event.error === 'not-allowed') message = "Microphone bloqué";
-    
-    document.getElementById("voiceStatus").textContent = `❌ ${message}`;
+    document.getElementById("voiceStatus").textContent = "❌ " + message;
     document.getElementById("voiceStatus").className = "voice-status error";
   };
   
-  // Fin
   recognition.onend = () => {
+    stopVoiceChrono();
+    var chronoEl = document.getElementById("voiceChrono");
+    if (chronoEl) chronoEl.classList.remove("voice-chrono--active");
     setTimeout(() => {
       document.getElementById("voiceStatus").textContent = "";
+      document.getElementById("voiceStatus").className = "voice-status";
     }, 2000);
   };
   
@@ -1798,12 +2254,13 @@ function showLoading(show) {
 
 function clearAll() {
   document.getElementById("textInput").value = "";
-  document.getElementById("originalText").textContent = "Tapez ou parlez en tunisien...";
+  document.getElementById("originalText").textContent = "—";
   document.getElementById("translationResult").innerHTML = "La traduction s'affichera ici";
   document.getElementById("translationResult").className = "lang-text translation-text";
   document.getElementById("conceptsResult").textContent = "—";
   document.getElementById("currentSign").textContent = "Prêt";
   document.getElementById("voiceStatus").textContent = "";
+  renderSentenceSignsStrip([]);
 }
 
 /** Copie la traduction française dans le presse-papier. */
@@ -1826,6 +2283,106 @@ function speakTranslation() {
   u.lang = "fr-FR";
   u.rate = 0.95;
   speechSynthesis.speak(u);
+}
+
+// ================================
+// RACCOURCIS CLAVIER (tout le site)
+// ================================
+function toggleKeyboardShortcuts() {
+  var panel = document.getElementById("keyboardShortcutsPanel");
+  if (!panel) return;
+  var isHidden = panel.hidden;
+  panel.hidden = !isHidden;
+  if (!isHidden) {
+    var btn = document.getElementById("keyboardShortcutsBtn");
+    if (btn) btn.focus();
+  }
+}
+
+function handleGlobalKeydown(e) {
+  var tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+  var isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target && e.target.isContentEditable);
+  var alt = e.altKey;
+  var ctrl = e.ctrlKey || e.metaKey;
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    var askOverlay = document.getElementById("eyeCursorAskOverlay");
+    var eyeOverlay = document.getElementById("eyeCursorOverlay");
+    var settingsPanel = document.getElementById("settingsPanel");
+    var shortcutsPanel = document.getElementById("keyboardShortcutsPanel");
+    if (shortcutsPanel && !shortcutsPanel.hidden) {
+      shortcutsPanel.hidden = true;
+      return;
+    }
+    if (settingsPanel && settingsPanel.classList.contains("is-open")) {
+      toggleSettingsPanel();
+      return;
+    }
+    if (eyeOverlay && !eyeOverlay.hidden && typeof stopEyeCursor === "function") {
+      stopEyeCursor();
+      return;
+    }
+    if (askOverlay && !askOverlay.hidden && typeof eyeCursorAskAnswer === "function") {
+      eyeCursorAskAnswer(false);
+      return;
+    }
+    return;
+  }
+
+  if (alt && e.key === "1") {
+    e.preventDefault();
+    switchMainTab("traduction");
+    return;
+  }
+  if (alt && e.key === "2") {
+    e.preventDefault();
+    switchMainTab("detection");
+    return;
+  }
+  if (alt && e.key === "3") {
+    e.preventDefault();
+    switchMainTab("realtime");
+    return;
+  }
+  if (alt && (e.key === "S" || e.key === "s")) {
+    e.preventDefault();
+    toggleSettingsPanel();
+    return;
+  }
+  if (alt && (e.key === "M" || e.key === "m")) {
+    e.preventDefault();
+    var panel = document.getElementById("panelTraduction");
+    if (panel && !panel.hasAttribute("hidden") && typeof startVoiceRecognition === "function")
+      startVoiceRecognition();
+    return;
+  }
+
+  if (ctrl && e.key === "Enter") {
+    e.preventDefault();
+    if (!isInput || tag === "TEXTAREA") {
+      var ask = document.getElementById("eyeCursorAskOverlay");
+      var eye = document.getElementById("eyeCursorOverlay");
+      if (ask && !ask.hidden) return;
+      if (eye && !eye.hidden) return;
+      processFullTranslation();
+    }
+    return;
+  }
+
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    var tabId = e.target.id;
+    var tabIds = ["tabTraduction", "tabDetection", "tabRealtime"];
+    var idx = tabIds.indexOf(tabId);
+    if (idx >= 0) {
+      e.preventDefault();
+      if (e.key === "ArrowLeft") idx = Math.max(0, idx - 1);
+      else idx = Math.min(2, idx + 1);
+      switchMainTab(["traduction", "detection", "realtime"][idx]);
+      var nextTab = document.getElementById(tabIds[idx]);
+      if (nextTab) nextTab.focus();
+    }
+  }
 }
 
 // ================================
@@ -1892,6 +2449,491 @@ function loadSettingsFromStorage() {
 }
 
 // ================================
+// QUESTION AU CHARGEMENT : VOULEZ-VOUS LE CURSEUR YEUX ? (agent + voix Oui/Non)
+// ================================
+var eyeCursorAskRecognition = null;
+
+function eyeCursorAskAnswer(useEyeCursor) {
+  var overlay = document.getElementById("eyeCursorAskOverlay");
+  if (overlay) overlay.hidden = true;
+  if (eyeCursorAskRecognition) {
+    try { eyeCursorAskRecognition.stop(); } catch (e) {}
+    eyeCursorAskRecognition = null;
+  }
+  var statusEl = document.getElementById("eyeCursorAskStatus");
+  if (statusEl) statusEl.textContent = "";
+  if (useEyeCursor && typeof startEyeCursor === "function") startEyeCursor();
+}
+
+function eyeCursorAskNormalize(t) {
+  if (!t) return "";
+  return t.toLowerCase().trim()
+    .replace(/[.!?,;:'"]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[éèêë]/g, "e")
+    .replace(/[àâä]/g, "a")
+    .replace(/[îï]/g, "i")
+    .replace(/[ùûü]/g, "u");
+}
+
+function eyeCursorAskIsOui(transcript) {
+  if (!transcript || typeof transcript !== "string") return false;
+  var t = eyeCursorAskNormalize(transcript);
+  var raw = transcript.trim();
+  var firstWord = (t.split(" ")[0] || t).trim();
+  var ouiWords = ["oui", "yes", "ouais", "ey", "eyy", "eyyy", "eyyyy", "ay", "e", "eh", "et", "es", "ei", "ah", "a", "eui", "he", "eh"];
+  if (ouiWords.indexOf(t) !== -1 || ouiWords.indexOf(firstWord) !== -1) return true;
+  if (t.length <= 4 && (/^e/.test(t) || /^ey/.test(t) || /^ay/.test(t) || /^eh/.test(t) || /^he/.test(t))) return true;
+  if (/^(oui|yes|ouais|ey|ay|eh|et)\s/.test(t) || /^(oui|yes|ouais|ey|ay)$/.test(t)) return true;
+  if (/[\u0627\u0623\u0625]\u064a/.test(raw) || /\u0627\u064a|\u0623\u064a/.test(raw)) return true;
+  return false;
+}
+
+function eyeCursorAskIsNon(transcript) {
+  if (!transcript || typeof transcript !== "string") return false;
+  var t = eyeCursorAskNormalize(transcript);
+  var raw = transcript.trim();
+  var firstWord = (t.split(" ")[0] || t).trim();
+  var nonWords = ["non", "no", "nope", "le", "la", "lay", "lai", "na", "l"];
+  if (nonWords.indexOf(t) !== -1) return true;
+  if (firstWord.length <= 3 && nonWords.indexOf(firstWord) !== -1 && t.length <= 6) return true;
+  if (t === "le" || t === "la" || t === "lay" || t === "lai" || t === "l") return true;
+  if (raw.indexOf("\u0644\u0627") >= 0 || raw.indexOf("لا") >= 0) return true;
+  return false;
+}
+
+var eyeCursorAskLangTried = null;
+
+function eyeCursorAskStartVoice() {
+  if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) return;
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognition = new SpeechRecognition();
+  recognition.lang = eyeCursorAskLangTried === "fr-FR" ? "fr-FR" : "ar";
+  if (!eyeCursorAskLangTried) eyeCursorAskLangTried = recognition.lang;
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
+  var statusEl = document.getElementById("eyeCursorAskStatus");
+  recognition.onresult = function (event) {
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      if (!event.results[i].isFinal) continue;
+      for (var alt = 0; alt < Math.min(3, event.results[i].length); alt++) {
+        var transcript = (event.results[i][alt] && event.results[i][alt].transcript) ? event.results[i][alt].transcript : "";
+        if (!transcript) continue;
+        if (eyeCursorAskIsOui(transcript)) {
+          if (statusEl) statusEl.textContent = "Oui — activation du curseur yeux…";
+          eyeCursorAskAnswer(true);
+          return;
+        }
+        if (eyeCursorAskIsNon(transcript)) {
+          if (statusEl) statusEl.textContent = "Non — fermeture.";
+          eyeCursorAskAnswer(false);
+          return;
+        }
+      }
+    }
+  };
+  recognition.onerror = function (e) {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      if (statusEl) statusEl.textContent = "Autorisez le micro ou cliquez Oui/Non.";
+    }
+    if (e.error === "language-not-supported" && recognition.lang === "ar") {
+      eyeCursorAskLangTried = "fr-FR";
+      setTimeout(function () { eyeCursorAskStartVoice(); }, 400);
+    }
+  };
+  recognition.onend = function () {
+    if (document.getElementById("eyeCursorAskOverlay") && !document.getElementById("eyeCursorAskOverlay").hidden)
+      setTimeout(function () { eyeCursorAskStartVoice(); }, 300);
+  };
+  try {
+    recognition.start();
+    eyeCursorAskRecognition = recognition;
+    if (statusEl) statusEl.textContent = "Écoute… Dites « Oui » / « Ey » ou « Non » / « Le ».";
+  } catch (e) {
+    if (recognition.lang === "ar") {
+      eyeCursorAskLangTried = "fr-FR";
+      setTimeout(function () { eyeCursorAskStartVoice(); }, 400);
+    } else {
+      if (statusEl) statusEl.textContent = "Micro non disponible. Cliquez Oui ou Non.";
+    }
+  }
+}
+
+function showEyeCursorAsk() {
+  eyeCursorAskLangTried = null;
+  var overlay = document.getElementById("eyeCursorAskOverlay");
+  if (!overlay) return;
+  overlay.hidden = false;
+  var statusEl = document.getElementById("eyeCursorAskStatus");
+  if (statusEl) statusEl.textContent = "";
+  setTimeout(function () { eyeCursorAskStartVoice(); }, 500);
+}
+
+// ================================
+// CURSEUR PILOTÉ PAR LES YEUX (intégré au site, pas de script externe)
+// ================================
+var eyeCursorFaceLandmarker = null;
+var eyeCursorStream = null;
+var eyeCursorLoopId = null;
+var eyeCursorCompactTimeoutId = null;
+var eyeCursorVideoTs = 0;
+var eyeCursorSmoothY = 0.5;
+var eyeCursorBlinkCooldown = 0;
+var eyeCursorLastFaceTime = 0;
+var eyeCursorLastActivityTime = 0;
+var eyeCursorLastX = -1;
+var eyeCursorLastY = -1;
+var eyeCursorHasSeenFaceOnce = false;   // true après la première détection (évite de fermer au démarrage)
+var EYE_CURSOR_AUTO_CLOSE_MS = 5000;   // fermer si pas de mouvement pendant 5 s
+var EYE_CURSOR_NO_FACE_CLOSE_MS = 3000; // fermer si visage/yeux non détectés pendant 3 s (après avoir vu le visage au moins une fois)
+var EYE_CURSOR_SCROLL_MAX_PER_FRAME = 18;  // scroll peu à peu (petit pas par frame)
+var EYE_CURSOR_DEAD_TOP = 0.40;
+var EYE_CURSOR_DEAD_BOTTOM = 0.60;
+var EYE_CURSOR_SMOOTH_ALPHA = 0.28;
+var FACE_LANDMARKER_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+
+function startEyeCursor() {
+  var btn = document.getElementById("eyeCursorBtn");
+  var statusEl = document.getElementById("eyeCursorStatus");
+  var overlay = document.getElementById("eyeCursorOverlay");
+  var videoEl = document.getElementById("eyeCursorVideo");
+  var dotEl = document.getElementById("eyeCursorDot");
+  if (!overlay || !videoEl || !dotEl) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class=\"fas fa-spinner fa-spin\"></i> Démarrage…"; }
+  if (statusEl) { statusEl.hidden = true; statusEl.textContent = ""; statusEl.className = "eye-cursor-status"; }
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } }).then(function (stream) {
+    eyeCursorStream = stream;
+    videoEl.srcObject = stream;
+    videoEl.onloadedmetadata = function () { videoEl.play().catch(function () {}); };
+    function getFaceLandmarkerClasses(cb) {
+      var FL = (typeof FaceLandmarker !== "undefined" ? FaceLandmarker : null) || (window.FaceLandmarker || (window.MediaPipeTasksVision && window.MediaPipeTasksVision.FaceLandmarker));
+      var FR = (typeof FilesetResolver !== "undefined" ? FilesetResolver : null) || (window.FilesetResolver || (window.MediaPipeTasksVision && window.MediaPipeTasksVision.FilesetResolver));
+      if (!FL && window.MediaPipeTasksVision && typeof window.MediaPipeTasksVision === "object") {
+        var M = window.MediaPipeTasksVision;
+        FL = M.FaceLandmarker || M.faceLandmarker;
+        FR = FR || M.FilesetResolver || M.filesetResolver;
+      }
+      if (FL && FR) return cb(FL, FR);
+      var url = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+      try {
+        import(url).then(function (mod) {
+          var FaceLandmarkerClass = mod.FaceLandmarker || (mod.default && mod.default.FaceLandmarker);
+          var FilesetResolverClass = mod.FilesetResolver || (mod.default && mod.default.FilesetResolver);
+          cb(FaceLandmarkerClass || null, FilesetResolverClass || null);
+        }).catch(function () { cb(null, null); });
+      } catch (e) {
+        cb(null, null);
+      }
+    }
+    getFaceLandmarkerClasses(function (FaceLandmarkerClass, FilesetResolverClass) {
+      if (!FaceLandmarkerClass || !FilesetResolverClass) {
+        stopEyeCursor();
+        if (statusEl) { statusEl.textContent = "MediaPipe Face Landmarker non disponible. Vérifiez votre connexion ou utilisez un navigateur récent."; statusEl.classList.add("eye-cursor-status-err"); statusEl.hidden = false; }
+        if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-eye\"></i> Ouvrir le curseur piloté par les yeux"; }
+        return;
+      }
+      var wasmUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+      FilesetResolverClass.forVisionTasks(wasmUrl).then(function (vision) {
+        if (FaceLandmarkerClass.createFromModelPath) {
+          return FaceLandmarkerClass.createFromModelPath(vision, FACE_LANDMARKER_MODEL_URL);
+        }
+        return FaceLandmarkerClass.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL_URL },
+          runningMode: "VIDEO",
+          numFaces: 1
+        });
+      }).then(function (marker) {
+      eyeCursorFaceLandmarker = marker;
+      if (marker && marker.setOptions) marker.setOptions({ runningMode: "VIDEO" });
+      overlay.hidden = false;
+      overlay.setAttribute("aria-hidden", "false");
+      var uiPanel = document.getElementById("eyeCursorUiPanel");
+      if (uiPanel) uiPanel.classList.remove("eye-cursor-ui--compact");
+      if (eyeCursorCompactTimeoutId) clearTimeout(eyeCursorCompactTimeoutId);
+      eyeCursorCompactTimeoutId = setTimeout(function () {
+        eyeCursorCompactTimeoutId = null;
+        var p = document.getElementById("eyeCursorUiPanel");
+        if (p) p.classList.add("eye-cursor-ui--compact");
+      }, 4000);
+      eyeCursorVideoTs = 0;
+      eyeCursorSmoothY = 0.5;
+      eyeCursorBlinkCooldown = 0;
+      eyeCursorLastFaceTime = Date.now();
+      eyeCursorLastActivityTime = Date.now();
+      eyeCursorLastX = -1;
+      eyeCursorLastY = -1;
+      eyeCursorHasSeenFaceOnce = false;
+      document.addEventListener("keydown", eyeCursorKeyHandler);
+      if (statusEl) { statusEl.textContent = "Curseur yeux activé (intégré au site)."; statusEl.classList.add("eye-cursor-status-ok"); statusEl.hidden = false; }
+      if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-eye\"></i> Ouvrir le curseur piloté par les yeux"; }
+      eyeCursorRunLoop();
+    }).catch(function (err) {
+      stopEyeCursor();
+      if (statusEl) { statusEl.textContent = "Erreur chargement Face Landmarker : " + (err.message || String(err)); statusEl.classList.add("eye-cursor-status-err"); statusEl.hidden = false; }
+      if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-eye\"></i> Ouvrir le curseur piloté par les yeux"; }
+    });
+    });
+  }).catch(function (err) {
+    if (statusEl) { statusEl.textContent = "Caméra inaccessible : " + (err.message || err.name || "Erreur"); statusEl.classList.add("eye-cursor-status-err"); statusEl.hidden = false; }
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-eye\"></i> Ouvrir le curseur piloté par les yeux"; }
+  });
+}
+
+function eyeCursorKeyHandler(e) {
+  if (e.key === "q" || e.key === "Q") {
+    e.preventDefault();
+    stopEyeCursor();
+  }
+}
+
+function eyeCursorDrawEyePoints(landmarks, canvasEl) {
+  if (!canvasEl || !landmarks || landmarks.length <= 473) return;
+  var cw = 120;
+  var ch = 90;
+  if (canvasEl.width !== cw || canvasEl.height !== ch) {
+    canvasEl.width = cw;
+    canvasEl.height = ch;
+  }
+  var ctx = canvasEl.getContext("2d");
+  ctx.clearRect(0, 0, cw, ch);
+  function pt(lm) {
+    if (!lm) return null;
+    return { x: (1 - lm.x) * cw, y: lm.y * ch };
+  }
+  var irisLeft = pt(landmarks[468]);
+  var irisRight = pt(landmarks[473]);
+  var leftHigh = pt(landmarks[145]);
+  var leftLow = pt(landmarks[159]);
+  var rightHigh = pt(landmarks[386]);
+  var rightLow = pt(landmarks[374]);
+  if (irisLeft) {
+    ctx.fillStyle = "rgba(45, 212, 191, 0.9)";
+    ctx.beginPath();
+    ctx.arc(irisLeft.x, irisLeft.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+  if (irisRight) {
+    ctx.fillStyle = "rgba(45, 212, 191, 0.9)";
+    ctx.beginPath();
+    ctx.arc(irisRight.x, irisRight.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+  [leftHigh, leftLow, rightHigh, rightLow].forEach(function (p) {
+    if (!p) return;
+    ctx.fillStyle = "rgba(252, 211, 77, 0.85)";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function eyeCursorRunLoop() {
+  if (eyeCursorLoopId) cancelAnimationFrame(eyeCursorLoopId);
+  var videoEl = document.getElementById("eyeCursorVideo");
+  var dotEl = document.getElementById("eyeCursorDot");
+  var canvasEl = document.getElementById("eyeCursorCanvas");
+  if (!videoEl || !dotEl || !eyeCursorFaceLandmarker || videoEl.readyState < 2) {
+    eyeCursorLoopId = requestAnimationFrame(eyeCursorRunLoop);
+    return;
+  }
+  var w = window.innerWidth;
+  var h = window.innerHeight;
+  eyeCursorVideoTs += 33;
+  var result;
+  try {
+    result = eyeCursorFaceLandmarker.detectForVideo(videoEl, eyeCursorVideoTs);
+  } catch (err) {
+    eyeCursorLoopId = requestAnimationFrame(eyeCursorRunLoop);
+    return;
+  }
+  var landmarks = (result && (result.faceLandmarks || result.face_landmarks) && (result.faceLandmarks[0] || result.face_landmarks[0])) || null;
+  if (canvasEl) {
+    if (landmarks && landmarks.length > 473) {
+      eyeCursorDrawEyePoints(landmarks, canvasEl);
+    } else {
+      var ctx = canvasEl.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvasEl.width || 120, canvasEl.height || 90);
+    }
+  }
+  var now = Date.now();
+  var noFace = !landmarks || landmarks.length <= 473;
+  var noFaceMsgEl = document.getElementById("eyeCursorNoFaceMsg");
+  if (noFace) {
+    if (noFaceMsgEl) { noFaceMsgEl.hidden = false; noFaceMsgEl.textContent = "Recherche du visage… (redétection)"; }
+    if (eyeCursorHasSeenFaceOnce && (now - eyeCursorLastFaceTime > EYE_CURSOR_NO_FACE_CLOSE_MS)) {
+      stopEyeCursor();
+      return;
+    }
+  } else {
+    eyeCursorHasSeenFaceOnce = true;
+    eyeCursorLastFaceTime = now;
+    if (noFaceMsgEl) noFaceMsgEl.hidden = true;
+    var leftIris = landmarks[468];
+    var rightIris = landmarks[473];
+    var screenX = 0, screenY = 0;
+    if (leftIris && rightIris) {
+      var pupilX = (leftIris.x + rightIris.x) / 2;
+      var pupilY = (leftIris.y + rightIris.y) / 2;
+      screenX = (1 - pupilX) * w;
+      screenY = pupilY * h;
+      var moved = (eyeCursorLastX < 0) || (Math.abs(screenX - eyeCursorLastX) > 4 || Math.abs(screenY - eyeCursorLastY) > 4);
+      if (moved) {
+        eyeCursorLastActivityTime = now;
+        eyeCursorLastX = screenX;
+        eyeCursorLastY = screenY;
+      }
+      dotEl.style.left = screenX + "px";
+      dotEl.style.top = screenY + "px";
+      eyeCursorSmoothY = EYE_CURSOR_SMOOTH_ALPHA * eyeCursorSmoothY + (1 - EYE_CURSOR_SMOOTH_ALPHA) * pupilY;
+      if (eyeCursorSmoothY < EYE_CURSOR_DEAD_TOP) {
+        var force = (EYE_CURSOR_DEAD_TOP - eyeCursorSmoothY) / EYE_CURSOR_DEAD_TOP;
+        window.scrollBy(0, -force * EYE_CURSOR_SCROLL_MAX_PER_FRAME);
+        eyeCursorLastActivityTime = now;
+      } else if (eyeCursorSmoothY > EYE_CURSOR_DEAD_BOTTOM) {
+        var force = (eyeCursorSmoothY - EYE_CURSOR_DEAD_BOTTOM) / (1 - EYE_CURSOR_DEAD_BOTTOM);
+        window.scrollBy(0, force * EYE_CURSOR_SCROLL_MAX_PER_FRAME);
+        eyeCursorLastActivityTime = now;
+      }
+    }
+    var leftHigh = landmarks[145];
+    var leftLow = landmarks[159];
+    var rightHigh = landmarks[386];
+    var rightLow = landmarks[374];
+    if (leftHigh && leftLow && rightHigh && rightLow && eyeCursorBlinkCooldown <= 0) {
+      var leftClosed = (leftHigh.y - leftLow.y) < 0.004;
+      var rightClosed = (rightHigh.y - rightLow.y) < 0.004;
+      if (leftClosed && rightClosed) {
+        var el = document.elementFromPoint(screenX, screenY);
+        if (el) {
+          try { el.click(); } catch (e) {}
+        }
+        eyeCursorBlinkCooldown = 25;
+        eyeCursorLastActivityTime = now;
+      }
+    }
+  }
+  var chronoEl = document.getElementById("eyeCursorChrono");
+  if (chronoEl) {
+    var noFaceRemaining = EYE_CURSOR_NO_FACE_CLOSE_MS - (now - eyeCursorLastFaceTime);
+    var noMoveRemaining = EYE_CURSOR_AUTO_CLOSE_MS - (now - eyeCursorLastActivityTime);
+    var remainingMs;
+    var label = "Fermeture dans";
+    if (noFace && eyeCursorHasSeenFaceOnce) {
+      remainingMs = noFaceRemaining;
+      label = "Redétection : fermeture dans";
+    } else {
+      remainingMs = noMoveRemaining;
+    }
+    var remainingSec = Math.min(5, Math.max(0, Math.ceil(remainingMs / 1000)));
+    chronoEl.textContent = remainingSec > 0 ? label + " : " + remainingSec + " s" : "—";
+  }
+  if (now - eyeCursorLastActivityTime > EYE_CURSOR_AUTO_CLOSE_MS) {
+    stopEyeCursor();
+    return;
+  }
+  if (eyeCursorBlinkCooldown > 0) eyeCursorBlinkCooldown--;
+  eyeCursorLoopId = requestAnimationFrame(eyeCursorRunLoop);
+}
+
+function stopEyeCursor() {
+  document.removeEventListener("keydown", eyeCursorKeyHandler);
+  if (eyeCursorCompactTimeoutId) {
+    clearTimeout(eyeCursorCompactTimeoutId);
+    eyeCursorCompactTimeoutId = null;
+  }
+  if (eyeCursorLoopId) {
+    cancelAnimationFrame(eyeCursorLoopId);
+    eyeCursorLoopId = null;
+  }
+  if (eyeCursorStream) {
+    eyeCursorStream.getTracks().forEach(function (t) { t.stop(); });
+    eyeCursorStream = null;
+  }
+  eyeCursorFaceLandmarker = null;
+  var overlay = document.getElementById("eyeCursorOverlay");
+  var videoEl = document.getElementById("eyeCursorVideo");
+  if (overlay) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); }
+  if (videoEl) { videoEl.srcObject = null; }
+  window.location.reload();
+}
+
+// ================================
+// ACCESSIBILITÉ WCAG (API WebAIM + wcag-api.js)
+// ================================
+function runWcagCheck() {
+  var btn = document.getElementById("wcagCheckBtn");
+  var block = document.getElementById("wcagCheckResults");
+  if (!block) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class=\"fas fa-spinner fa-spin\"></i> Vérification…"; }
+  block.hidden = true;
+  block.innerHTML = "";
+  var api = typeof WCAG_ACCESSIBILITY !== "undefined" ? WCAG_ACCESSIBILITY : null;
+  if (!api || !api.runFullCheck) {
+    block.innerHTML = "<p class=\"wcag-result-fail\">Module WCAG non chargé. Vérifiez que wcag-api.js est inclus.</p>";
+    block.hidden = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-check-double\"></i> Vérifier le contraste"; }
+    return;
+  }
+  api.runFullCheck().then(function (results) {
+    var html = "";
+    results.forEach(function (item) {
+      if (item.error) {
+        html += "<div class=\"wcag-result-line\"><span>" + item.label + "</span><span class=\"wcag-result-fail\">—</span></div>";
+        return;
+      }
+      var r = item.result;
+      var ok = r.aa || r.aaLarge;
+      var cls = ok ? "wcag-result-ok" : "wcag-result-fail";
+      var label = r.aa ? "AA ✓" : (r.aaLarge ? "AA (grand) ✓" : "Insuffisant");
+      html += "<div class=\"wcag-result-line\"><span>" + item.label + "</span><span class=\"wcag-result-ratio\">" + r.ratio + ":1</span><span class=\"" + cls + "\">" + label + "</span></div>";
+    });
+    block.innerHTML = html;
+    block.hidden = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-check-double\"></i> Vérifier le contraste"; }
+  }).catch(function (err) {
+    block.innerHTML = "<p class=\"wcag-result-fail\">Erreur : " + (err.message || "Vérification impossible") + "</p>";
+    block.hidden = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class=\"fas fa-check-double\"></i> Vérifier le contraste"; }
+  });
+}
+
+function applyWcagColors() {
+  var root = document.documentElement;
+  var api = typeof WCAG_ACCESSIBILITY !== "undefined" ? WCAG_ACCESSIBILITY : null;
+  if (!api) return;
+  var W = api.WCAG || { AA_TEXT: 4.5 };
+  var surfaceHex = api.getComputedHex("--surface") || "0c1222";
+  var surface2Hex = api.getComputedHex("--surface-2") || "151d33";
+  var textHex = api.getComputedHex("--text");
+  var textMutedHex = api.getComputedHex("--text-muted");
+  var primaryHex = api.getComputedHex("--primary") || "0d9488";
+  var ratioText = textHex ? api.contrastRatio(textHex, surfaceHex) : 21;
+  var ratioMuted = textMutedHex ? api.contrastRatio(textMutedHex, surface2Hex) : 0;
+  if (ratioText < W.AA_TEXT) {
+    var suggested = api.suggestAccessibleFg(surfaceHex, W.AA_TEXT);
+    if (suggested) root.style.setProperty("--text", "#" + suggested);
+  }
+  if (ratioMuted > 0 && ratioMuted < W.AA_TEXT) {
+    var suggestedMuted = api.suggestAccessibleFg(surface2Hex, W.AA_LARGE);
+    if (suggestedMuted) root.style.setProperty("--text-muted", "#" + suggestedMuted);
+  }
+  var ratioPrimary = api.contrastRatio("ffffff", primaryHex);
+  if (ratioPrimary < W.AA_TEXT) {
+    root.style.setProperty("--primary", "#0f766e");
+    root.style.setProperty("--primary-light", "#14b8a6");
+  }
+  runWcagCheck();
+}
+
+// ================================
 // INITIALISATION
 // ================================
 function onDomReady() {
@@ -1900,6 +2942,9 @@ function onDomReady() {
   updateHistoryDisplay();
   loadSkeletonAnimationsList();
   loadAnimationsVideoList();
+  setTimeout(function () { showEyeCursorAsk(); }, 400);
+
+  document.addEventListener("keydown", handleGlobalKeydown);
 
   function onResize() {
     const container = getSceneContainer();
@@ -1927,6 +2972,492 @@ function onDomReady() {
       document.getElementById("textInput").focus();
     });
   });
+
+  var detectionInput = document.getElementById("detectionVideoInput");
+  var detectionRunBtn = document.getElementById("detectionRunBtn");
+  var detectionPreview = document.getElementById("detectionPreview");
+  if (detectionInput && detectionRunBtn) {
+    detectionInput.addEventListener("change", function () {
+      detectionRunBtn.disabled = !(this.files && this.files[0]);
+      if (detectionPreview) {
+        detectionPreview.innerHTML = "";
+        if (this.files && this.files[0]) {
+          var v = document.createElement("video");
+          v.src = URL.createObjectURL(this.files[0]);
+          v.controls = true;
+          v.preload = "metadata";
+          v.style.maxWidth = "100%";
+          detectionPreview.appendChild(v);
+        }
+      }
+    });
+  }
+}
+
+// ================================
+// ONGLETS (Traduction / Détection vidéo / Détection en direct)
+// ================================
+function switchMainTab(tabId) {
+  var panelTraduction = document.getElementById("panelTraduction");
+  var panelDetection = document.getElementById("panelDetection");
+  var panelRealtime = document.getElementById("panelRealtime");
+  var tabTraduction = document.getElementById("tabTraduction");
+  var tabDetection = document.getElementById("tabDetection");
+  var tabRealtime = document.getElementById("tabRealtime");
+  var panels = [panelTraduction, panelDetection, panelRealtime];
+  var tabs = [tabTraduction, tabDetection, tabRealtime];
+  var ids = ["traduction", "detection", "realtime"];
+  if (!panelTraduction || !panelDetection) return;
+  panels.forEach(function (p) { if (p) p.setAttribute("hidden", ""); });
+  tabs.forEach(function (t) { if (t) { t.classList.remove("active"); t.setAttribute("aria-selected", "false"); } });
+  var idx = ids.indexOf(tabId);
+  if (idx === 0) { if (panelTraduction) panelTraduction.removeAttribute("hidden"); if (tabTraduction) { tabTraduction.classList.add("active"); tabTraduction.setAttribute("aria-selected", "true"); } }
+  else if (idx === 1) { if (panelDetection) panelDetection.removeAttribute("hidden"); if (tabDetection) { tabDetection.classList.add("active"); tabDetection.setAttribute("aria-selected", "true"); } }
+  else if (idx === 2) { if (panelRealtime) panelRealtime.removeAttribute("hidden"); if (tabRealtime) { tabRealtime.classList.add("active"); tabRealtime.setAttribute("aria-selected", "true"); } }
+  if (tabId === "realtime") stopRealtimeDetection();
+}
+
+// ================================
+// Détection en temps réel (caméra) + mains/doigts (MediaPipe Hand Landmarker)
+// ================================
+var realtimeStream = null;
+var realtimeIntervalId = null;
+var realtimeCanvas = null;
+var realtimeCtx = null;
+var realtimeHandLandmarker = null;
+var realtimeHandDrawLoopId = null;
+var realtimeLastHandResult = null;
+var realtimeServerHands = null;
+var realtimeVideoTimestampMs = 0;
+var realtimeHandLoadFailed = false;
+var realtimeLastHandRequestTime = 0;
+var REALTIME_HAND_CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
+var REALTIME_HAND_MODEL_URL_CDN = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+function startRealtimeDetection() {
+  var videoEl = document.getElementById("realtimeVideo");
+  var overlayEl = document.getElementById("realtimeHandOverlay");
+  var placeholderEl = document.getElementById("realtimePlaceholder");
+  var startBtn = document.getElementById("realtimeStartBtn");
+  var stopBtn = document.getElementById("realtimeStopBtn");
+  var labelEl = document.getElementById("realtimePredictedLabel");
+  var confidenceEl = document.getElementById("realtimeConfidence");
+  var topEl = document.getElementById("realtimeTopClasses");
+  var errorEl = document.getElementById("realtimeError");
+  if (!videoEl || !startBtn || !stopBtn) return;
+
+  function onError(msg) {
+    if (errorEl) { errorEl.textContent = msg; errorEl.style.display = "block"; }
+    if (placeholderEl) placeholderEl.classList.remove("hidden");
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+
+  startBtn.disabled = true;
+  if (errorEl) errorEl.style.display = "none";
+  if (labelEl) labelEl.textContent = "—";
+  if (confidenceEl) confidenceEl.textContent = "";
+  if (topEl) topEl.innerHTML = "";
+  realtimeLastHandResult = null;
+  realtimeHandLoadFailed = false;
+
+  var constraints = { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }, audio: false };
+  navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+    realtimeStream = stream;
+    videoEl.srcObject = stream;
+    if (placeholderEl) placeholderEl.classList.add("hidden");
+    stopBtn.disabled = false;
+
+    if (!realtimeCanvas) {
+      realtimeCanvas = document.createElement("canvas");
+      realtimeCanvas.width = 224;
+      realtimeCanvas.height = 224;
+      realtimeCtx = realtimeCanvas.getContext("2d");
+    }
+
+    var apiBase = window.location.origin || "";
+    var sending = false;
+
+    function drawHandsFromServerData(handsData) {
+      if (!overlayEl || !handsData || !handsData.hands || handsData.hands.length === 0) return;
+      var w = overlayEl.width;
+      var h = overlayEl.height;
+      if (!w || !h) return;
+      var ctx = overlayEl.getContext("2d");
+      function px(x) { return x * w; }
+      function py(y) { return y * h; }
+      for (var handIdx = 0; handIdx < handsData.hands.length; handIdx++) {
+        var hand = handsData.hands[handIdx];
+        var landmarks = hand.landmarks || [];
+        var bbox = hand.bbox || [];
+        var color = handIdx === 0 ? "0, 212, 191" : "217, 119, 6";
+        var r = "rgba(" + color + ",";
+        if (bbox.length >= 4) {
+          ctx.strokeStyle = r + "0.85)";
+          ctx.lineWidth = 3;
+          ctx.setLineDash([6, 4]);
+          ctx.strokeRect(px(bbox[0]) - 4, py(bbox[1]) - 4, px(bbox[2] - bbox[0]) + 8, py(bbox[3] - bbox[1]) + 8);
+          ctx.setLineDash([]);
+        }
+        for (var i = 0; i < REALTIME_HAND_CONNECTIONS.length; i++) {
+          var a = landmarks[REALTIME_HAND_CONNECTIONS[i][0]];
+          var b = landmarks[REALTIME_HAND_CONNECTIONS[i][1]];
+          if (a && b) {
+            ctx.strokeStyle = r + "0.95)";
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(px(a.x), py(a.y));
+            ctx.lineTo(px(b.x), py(b.y));
+            ctx.stroke();
+          }
+        }
+        for (var j = 0; j < landmarks.length; j++) {
+          var lm = landmarks[j];
+          ctx.fillStyle = r + "1)";
+          ctx.strokeStyle = "rgba(255,255,255,0.9)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(px(lm.x), py(lm.y), 8, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawHandsOnOverlay() {
+      if (!overlayEl || !videoEl || !realtimeStream) return;
+      var videoW = videoEl.videoWidth;
+      var videoH = videoEl.videoHeight;
+      if (!videoW || !videoH) {
+        var ctx = overlayEl.getContext("2d");
+        ctx.clearRect(0, 0, overlayEl.width || 640, overlayEl.height || 480);
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.font = "14px sans-serif";
+        ctx.fillText("Attente du flux vidéo...", 10, 24);
+        realtimeHandDrawLoopId = requestAnimationFrame(drawHandsOnOverlay);
+        return;
+      }
+      if (overlayEl.width !== videoW || overlayEl.height !== videoH) {
+        overlayEl.width = videoW;
+        overlayEl.height = videoH;
+      }
+      var ctx = overlayEl.getContext("2d");
+      var w = overlayEl.width;
+      var h = overlayEl.height;
+      ctx.clearRect(0, 0, w, h);
+      function px(x) { return x * w; }
+      function py(y) { return y * h; }
+
+      if (videoEl.readyState >= 2) {
+        var now = Date.now();
+        if (now - realtimeLastHandRequestTime > 150) {
+          realtimeLastHandRequestTime = now;
+          realtimeCanvas.width = videoW;
+          realtimeCanvas.height = videoH;
+          realtimeCtx.drawImage(videoEl, 0, 0, videoW, videoH);
+          var dataUrl = realtimeCanvas.toDataURL("image/jpeg", 0.8);
+          var b64 = dataUrl.indexOf(",") >= 0 ? dataUrl.split(",")[1] : dataUrl;
+          fetch(apiBase + "/api/detect_hands", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ frame: b64 })
+          }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.hands) {
+              realtimeServerHands = data;
+              realtimeLastHandResult = { landmarks: data.hands.map(function (hand) { return hand.landmarks || []; }) };
+              realtimeHandLoadFailed = false;
+            }
+          }).catch(function () {});
+        }
+        if (realtimeServerHands && realtimeServerHands.hands && realtimeServerHands.hands.length > 0) {
+          drawHandsFromServerData(realtimeServerHands);
+        } else if (!realtimeHandLandmarker) {
+          if (realtimeHandLoadFailed) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.font = "14px sans-serif";
+            ctx.fillText("Détection mains indisponible — prédiction du signe active", 10, 24);
+          } else {
+            ctx.fillStyle = "rgba(255,255,255,0.85)";
+            ctx.font = "14px sans-serif";
+            ctx.fillText("Présentez votre main devant la caméra", 10, 24);
+          }
+        } else {
+          try {
+            realtimeVideoTimestampMs += 16;
+            var result = realtimeHandLandmarker.detectForVideo(videoEl, realtimeVideoTimestampMs);
+            realtimeLastHandResult = result;
+            if (result && result.landmarks && result.landmarks.length > 0) {
+              for (var handIdx = 0; handIdx < result.landmarks.length; handIdx++) {
+                var landmarks = result.landmarks[handIdx];
+                var color = handIdx === 0 ? "0, 212, 191" : "217, 119, 6";
+                var r = "rgba(" + color + ",";
+                var minX = 1, minY = 1, maxX = 0, maxY = 0;
+                for (var i = 0; i < REALTIME_HAND_CONNECTIONS.length; i++) {
+                  var a = landmarks[REALTIME_HAND_CONNECTIONS[i][0]];
+                  var b = landmarks[REALTIME_HAND_CONNECTIONS[i][1]];
+                  if (a && b) {
+                    ctx.strokeStyle = r + "0.95)";
+                    ctx.lineWidth = 4;
+                    ctx.lineCap = "round";
+                    ctx.beginPath();
+                    ctx.moveTo(px(a.x), py(a.y));
+                    ctx.lineTo(px(b.x), py(b.y));
+                    ctx.stroke();
+                    minX = Math.min(minX, a.x, b.x); minY = Math.min(minY, a.y, b.y);
+                    maxX = Math.max(maxX, a.x, b.x); maxY = Math.max(maxY, a.y, b.y);
+                  }
+                }
+                for (var j = 0; j < landmarks.length; j++) {
+                  var lm = landmarks[j];
+                  minX = Math.min(minX, lm.x); minY = Math.min(minY, lm.y);
+                  maxX = Math.max(maxX, lm.x); maxY = Math.max(maxY, lm.y);
+                  ctx.fillStyle = r + "1)";
+                  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+                  ctx.lineWidth = 2;
+                  ctx.beginPath();
+                  ctx.arc(px(lm.x), py(lm.y), 8, 0, 2 * Math.PI);
+                  ctx.fill();
+                  ctx.stroke();
+                }
+                ctx.strokeStyle = r + "0.85)";
+                ctx.lineWidth = 3;
+                ctx.setLineDash([6, 4]);
+                ctx.strokeRect(px(minX) - 8, py(minY) - 8, px(maxX - minX) + 16, py(maxY - minY) + 16);
+                ctx.setLineDash([]);
+              }
+            } else {
+              ctx.fillStyle = "rgba(255,255,255,0.85)";
+              ctx.font = "14px sans-serif";
+              ctx.fillText("Présentez votre main devant la caméra", 10, 24);
+            }
+          } catch (e) {}
+        }
+      }
+      realtimeHandDrawLoopId = requestAnimationFrame(drawHandsOnOverlay);
+    }
+
+    function handBboxFromResult(result) {
+      if (!result || !result.landmarks || result.landmarks.length === 0) return null;
+      var minX = 1, minY = 1, maxX = 0, maxY = 0;
+      for (var h = 0; h < result.landmarks.length; h++) {
+        for (var i = 0; i < result.landmarks[h].length; i++) {
+          var x = result.landmarks[h][i].x;
+          var y = result.landmarks[h][i].y;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+      var pad = 0.2;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(1, maxX + pad);
+      maxY = Math.min(1, maxY + pad);
+      return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+
+    function captureOneFrame() {
+      var w = videoEl.videoWidth;
+      var h = videoEl.videoHeight;
+      if (!w || !h) return null;
+      realtimeCanvas.width = 224;
+      realtimeCanvas.height = 224;
+      var bbox = realtimeLastHandResult ? handBboxFromResult(realtimeLastHandResult) : null;
+      if (bbox) {
+        var sx = bbox.minX * w;
+        var sy = bbox.minY * h;
+        var sw = (bbox.maxX - bbox.minX) * w;
+        var sh = (bbox.maxY - bbox.minY) * h;
+        realtimeCtx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, 224, 224);
+      } else {
+        realtimeCtx.drawImage(videoEl, 0, 0, w, h, 0, 0, 224, 224);
+      }
+      var dataUrl = realtimeCanvas.toDataURL("image/jpeg", 0.85);
+      return dataUrl.indexOf(",") >= 0 ? dataUrl.split(",")[1] : dataUrl;
+    }
+
+    function sendFrames(frames) {
+      if (frames.length < 8 || sending) return;
+      sending = true;
+      fetch(apiBase + "/api/video_predict_sign_frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames: frames })
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        sending = false;
+        if (data.error) return;
+        if (labelEl) labelEl.textContent = data.label || "—";
+        if (confidenceEl) confidenceEl.textContent = "Confiance : " + (Math.round((data.confidence || 0) * 100) + "%");
+        if (topEl && data.all_classes && data.all_classes.length) {
+          var html = "";
+          data.all_classes.slice(0, 5).forEach(function (c) {
+            html += "<div>" + c.label + " (" + Math.round((c.score || 0) * 100) + "%)</div>";
+          });
+          topEl.innerHTML = html;
+        }
+      }).catch(function () { sending = false; });
+    }
+
+    function scheduleCaptureCycle() {
+      if (!realtimeStream) return;
+      var frames = [];
+      var step = 0;
+      function take() {
+        if (!realtimeStream || step >= 8) {
+          if (frames.length >= 8) sendFrames(frames);
+          return;
+        }
+        var b64 = captureOneFrame();
+        if (b64) frames.push(b64);
+        step++;
+        if (step < 8) setTimeout(take, 150);
+        else if (frames.length >= 8) sendFrames(frames);
+      }
+      take();
+    }
+
+    drawHandsOnOverlay();
+    scheduleCaptureCycle();
+    realtimeIntervalId = setInterval(scheduleCaptureCycle, 1600);
+
+    var handLoadTimeout = setTimeout(function () {
+      if (!realtimeHandLandmarker) {
+        realtimeHandLoadFailed = true;
+      }
+    }, 5000);
+
+    var HandLandmarkerClass = (typeof HandLandmarker !== "undefined" ? HandLandmarker : null) || (typeof window !== "undefined" && (window.HandLandmarker || (window.MediaPipeTasksVision && window.MediaPipeTasksVision.HandLandmarker)));
+    var FilesetResolverClass = (typeof FilesetResolver !== "undefined" ? FilesetResolver : null) || (typeof window !== "undefined" && (window.FilesetResolver || (window.MediaPipeTasksVision && window.MediaPipeTasksVision.FilesetResolver)));
+    if (HandLandmarkerClass && FilesetResolverClass) {
+      realtimeVideoTimestampMs = 0;
+      var wasmUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+      var serverModelUrl = apiBase + "/hand_landmarker.task";
+      function tryCreate(modelUrl) {
+        return FilesetResolverClass.forVisionTasks(wasmUrl).then(function (vision) {
+          return HandLandmarkerClass.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: modelUrl },
+            numHands: 2,
+            runningMode: "VIDEO",
+            minHandDetectionConfidence: 0.4,
+            minHandPresenceConfidence: 0.4
+          });
+        });
+      }
+      tryCreate(serverModelUrl).then(function (marker) {
+        clearTimeout(handLoadTimeout);
+        realtimeHandLandmarker = marker;
+        if (marker && marker.setOptions) marker.setOptions({ runningMode: "VIDEO" });
+      }).catch(function () {
+        return tryCreate(REALTIME_HAND_MODEL_URL_CDN);
+      }).then(function (marker) {
+        if (marker) {
+          clearTimeout(handLoadTimeout);
+          realtimeHandLandmarker = marker;
+          if (marker.setOptions) marker.setOptions({ runningMode: "VIDEO" });
+        }
+      }).catch(function (err) {
+        realtimeHandLandmarker = null;
+        realtimeHandLoadFailed = true;
+        console.warn("Hand Landmarker load failed:", err);
+      });
+    } else {
+      realtimeHandLoadFailed = true;
+    }
+  }).catch(function (err) {
+    onError("Impossible d'accéder à la caméra : " + (err.message || err.name || "Erreur"));
+  });
+}
+
+function stopRealtimeDetection() {
+  if (realtimeIntervalId) {
+    clearInterval(realtimeIntervalId);
+    realtimeIntervalId = null;
+  }
+  if (realtimeHandDrawLoopId) {
+    cancelAnimationFrame(realtimeHandDrawLoopId);
+    realtimeHandDrawLoopId = null;
+  }
+  realtimeHandLandmarker = null;
+  realtimeLastHandResult = null;
+  realtimeServerHands = null;
+  realtimeHandLoadFailed = false;
+  if (realtimeStream) {
+    realtimeStream.getTracks().forEach(function (t) { t.stop(); });
+    realtimeStream = null;
+  }
+  var videoEl = document.getElementById("realtimeVideo");
+  if (videoEl) videoEl.srcObject = null;
+  var overlayEl = document.getElementById("realtimeHandOverlay");
+  if (overlayEl) {
+    var ctx = overlayEl.getContext("2d");
+    if (ctx) ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+  }
+  var placeholderEl = document.getElementById("realtimePlaceholder");
+  if (placeholderEl) placeholderEl.classList.remove("hidden");
+  var startBtn = document.getElementById("realtimeStartBtn");
+  var stopBtn = document.getElementById("realtimeStopBtn");
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+}
+
+function runVideoSignDetection() {
+  var input = document.getElementById("detectionVideoInput");
+  var runBtn = document.getElementById("detectionRunBtn");
+  var resultEl = document.getElementById("detectionPredictedLabel");
+  var confidenceEl = document.getElementById("detectionConfidence");
+  var correctedHintEl = document.getElementById("detectionCorrectedHint");
+  var topClassesEl = document.getElementById("detectionTopClasses");
+  var loadingEl = document.getElementById("detectionLoading");
+  var errorEl = document.getElementById("detectionError");
+  if (!input || !input.files || !input.files[0]) {
+    if (errorEl) { errorEl.textContent = "Veuillez choisir une vidéo."; errorEl.style.display = "block"; }
+    return;
+  }
+  if (loadingEl) loadingEl.style.display = "block";
+  if (errorEl) errorEl.style.display = "none";
+  if (resultEl) resultEl.textContent = "—";
+  if (confidenceEl) confidenceEl.textContent = "";
+  if (correctedHintEl) correctedHintEl.style.display = "none";
+  if (topClassesEl) topClassesEl.innerHTML = "";
+
+  var form = new FormData();
+  form.append("video", input.files[0]);
+  var apiBase = window.location.origin || "";
+  fetch(apiBase + "/api/video_predict_sign", { method: "POST", body: form })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (data.error) {
+        if (errorEl) { errorEl.textContent = data.error; errorEl.style.display = "block"; }
+        return;
+      }
+      if (resultEl) resultEl.textContent = data.label || "—";
+      if (confidenceEl) confidenceEl.textContent = "Confiance : " + (Math.round((data.confidence || 0) * 100) + "%");
+      if (correctedHintEl) {
+        if (data.corrected_by_filename) {
+          correctedHintEl.textContent = "✓ Corrigé par nom du fichier (confiance modèle < 50%)";
+          correctedHintEl.style.display = "block";
+        } else {
+          correctedHintEl.style.display = "none";
+        }
+      }
+      if (topClassesEl && data.all_classes && data.all_classes.length) {
+        var ul = document.createElement("ul");
+        data.all_classes.slice(0, 5).forEach(function (c) {
+          var li = document.createElement("li");
+          li.textContent = c.label + " (" + (Math.round((c.score || 0) * 100) + "%)");
+          ul.appendChild(li);
+        });
+        topClassesEl.innerHTML = "";
+        topClassesEl.appendChild(ul);
+      }
+    })
+    .catch(function (err) {
+      if (loadingEl) loadingEl.style.display = "none";
+      if (errorEl) { errorEl.textContent = "Erreur : " + (err.message || String(err)); errorEl.style.display = "block"; }
+    });
 }
 
 if (document.readyState === "loading") {

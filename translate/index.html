@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0c1222">
   <meta name="description" content="Voice to Sign — Traducteur tunisien vers français avec vidéos en langue des signes. Interface accessible.">
-  <title>Traducteur Tunisien → Français (dictionnaire + Groq)</title>
+  <title>Voice to Sign</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,34 +19,51 @@
       <div class="header-glow"></div>
       <div class="header-badge">🇹🇳 → 🇫🇷</div>
       <h1>Voice to Sign</h1>
-      <p class="subtitle">Dialecte tunisien → Français → Langue des signes</p>
+      <p class="subtitle">Dialecte tunisien → Langue des signes</p>
+      <nav class="main-tabs" role="tablist" aria-label="Sections principales">
+        <button type="button" class="main-tab active" role="tab" id="tabTraduction" aria-selected="true" aria-controls="panelTraduction" onclick="switchMainTab('traduction')" title="Traduction (Alt+1)">
+          <i class="fas fa-language"></i> Traduction
+        </button>
+        <button type="button" class="main-tab" role="tab" id="tabDetection" aria-selected="false" aria-controls="panelDetection" onclick="switchMainTab('detection')" title="Détection signe vidéo (Alt+2)">
+          <i class="fas fa-hand-paper"></i> Détection signe (vidéo)
+        </button>
+        <button type="button" class="main-tab" role="tab" id="tabRealtime" aria-selected="false" aria-controls="panelRealtime" onclick="switchMainTab('realtime')" title="Détection en direct (Alt+3)">
+          <i class="fas fa-video"></i> Détection en direct (caméra)
+        </button>
+      </nav>
     </header>
     
-    <main class="main-two-columns">
+    <main class="main-two-columns" id="panelTraduction" role="tabpanel" aria-labelledby="tabTraduction">
       <!-- Partie gauche : saisie et traduction (comme la capture) -->
       <div class="main-left">
         <div class="input-section card card--left">
           <h3 class="panel-title"><i class="fas fa-keyboard"></i> Enter Text or Use Mic</h3>
           <div class="input-group">
-            <label for="textInput" class="sr-only">Texte</label>
+            <label for="textInput" class="sr-only">Phrase ou texte</label>
             <textarea 
               id="textInput" 
-              placeholder="Tapez en tunisien ou utilisez le micro…" 
+              placeholder="Entrez une phrase en tunisien (ou un mot)…" 
               rows="3"
             ></textarea>
           </div>
           <div class="buttons-row buttons-row--submit">
-            <button class="btn btn-mic" onclick="startVoiceRecognition()" title="Micro">
-              <i class="fas fa-microphone"></i>
+            <div class="voice-control-group">
+              <button class="btn btn-mic" id="btnMic" onclick="startVoiceRecognition()" title="Micro — Parler en tunisien (Alt+M)">
+                <i class="fas fa-microphone" id="btnMicIcon"></i>
+              </button>
+              <span id="voiceChrono" class="voice-chrono" aria-live="polite">0:00</span>
+            </div>
+            <button class="btn btn-outline btn-clear-voice" onclick="clearVoiceInput()" title="Vider le texte saisi">
+              <i class="fas fa-eraser"></i> Vider
             </button>
             <button class="btn btn-primary btn-submit" onclick="processFullTranslation()">
               Submit
             </button>
           </div>
           <div class="text-output-labels">
-            <p class="output-label">The text that you entered is:</p>
+            <p class="output-label">Texte saisi :</p>
             <p id="originalText" class="output-text">—</p>
-            <p class="output-label">Key words in sentence:</p>
+            <p class="output-label">Mots clés pour les signes :</p>
             <div id="conceptsResult" class="concepts-text">—</div>
           </div>
           <div id="loading" class="loading">
@@ -118,11 +135,82 @@
               </div>
             </div>
           </div>
+          <div class="sentence-signs-section">
+            <h4 class="sentence-signs-title"><i class="fas fa-hands"></i> Signes de la phrase</h4>
+            <p class="sentence-signs-desc">Un signe par mot (ou groupe) — cliquez pour lire dans le lecteur principal.</p>
+            <div id="sentenceSignsStrip" class="sentence-signs-strip" aria-live="polite"></div>
+          </div>
           <div class="animations-all-section">
             <h4 class="animations-all-title"><i class="fas fa-list"></i> Toutes les vidéos (animations)</h4>
             <div id="animationsVideoList" class="animations-video-grid"></div>
           </div>
         </div>
+      </div>
+    </main>
+
+    <!-- Onglet Détection signe (vidéo → label) -->
+    <main class="detection-panel" id="panelDetection" role="tabpanel" aria-labelledby="tabDetection" hidden>
+      <div class="detection-content card">
+        <h3 class="panel-title panel-title--yellow"><i class="fas fa-hand-paper"></i> Détection du signe depuis une vidéo</h3>
+        <p class="detection-desc">Choisissez une vidéo en langue des signes. Le modèle <strong>sign_model_final.pth</strong> prédit le signe affiché.</p>
+        <div class="detection-upload">
+          <label for="detectionVideoInput" class="detection-upload-label">
+            <i class="fas fa-upload"></i> Choisir une vidéo
+          </label>
+          <input type="file" id="detectionVideoInput" accept="video/*" class="detection-video-input" aria-label="Fichier vidéo pour détection">
+          <button type="button" class="btn btn-primary" id="detectionRunBtn" onclick="runVideoSignDetection()" disabled>
+            <i class="fas fa-play"></i> Détecter le signe
+          </button>
+        </div>
+        <div id="detectionPreview" class="detection-preview" aria-live="polite"></div>
+        <div id="detectionResult" class="detection-result" aria-live="polite">
+          <div class="detection-result-label-wrap">
+            <span class="detection-result-label">Signe prédit :</span>
+            <strong id="detectionPredictedLabel" class="detection-predicted-label">—</strong>
+          </div>
+          <p id="detectionConfidence" class="detection-confidence"></p>
+          <p id="detectionCorrectedHint" class="detection-corrected-hint" style="display:none"></p>
+          <div id="detectionTopClasses" class="detection-top-classes"></div>
+        </div>
+        <div id="detectionLoading" class="loading detection-loading" style="display:none">
+          <div class="spinner"></div>
+          <p><i class="fas fa-sync fa-spin"></i> Analyse de la vidéo en cours...</p>
+        </div>
+        <div id="detectionError" class="detection-error" style="display:none" role="alert"></div>
+      </div>
+    </main>
+
+    <!-- Détection en direct (caméra) -->
+    <main class="realtime-panel" id="panelRealtime" role="tabpanel" aria-labelledby="tabRealtime" hidden>
+      <div class="realtime-content card">
+        <h3 class="panel-title panel-title--yellow"><i class="fas fa-video"></i> Détection du signe en temps réel</h3>
+        <p class="realtime-desc">Autorisez la caméra, faites le signe devant l’objectif. La prédiction se met à jour toutes les ~1,5 s.</p>
+        <div class="realtime-video-wrap">
+          <video id="realtimeVideo" class="realtime-video" autoplay playsinline muted aria-label="Flux caméra"></video>
+          <canvas id="realtimeHandOverlay" class="realtime-hand-overlay" aria-hidden="true"></canvas>
+          <div id="realtimePlaceholder" class="realtime-placeholder">
+            <i class="fas fa-video-slash"></i>
+            <span>Caméra désactivée</span>
+          </div>
+        </div>
+        <p class="realtime-hint"><i class="fas fa-hand-paper"></i> Le graphe (points et traits) des mains et doigts s’affiche en direct sur la vidéo. Cadre en pointillés = zone main détectée.</p>
+        <div class="realtime-controls">
+          <button type="button" class="btn btn-primary" id="realtimeStartBtn" onclick="startRealtimeDetection()">
+            <i class="fas fa-play"></i> Démarrer la caméra
+          </button>
+          <button type="button" class="btn btn-secondary" id="realtimeStopBtn" onclick="stopRealtimeDetection()" disabled>
+            <i class="fas fa-stop"></i> Arrêter
+          </button>
+        </div>
+        <div id="realtimeResult" class="realtime-result" aria-live="polite">
+          <div class="realtime-result-label-wrap">
+            <span class="realtime-result-label">Signe prédit :</span>
+            <strong id="realtimePredictedLabel" class="realtime-predicted-label">—</strong>
+          </div>
+          <p id="realtimeConfidence" class="realtime-confidence"></p>
+          <div id="realtimeTopClasses" class="realtime-top-classes"></div>
+        </div>
+        <div id="realtimeError" class="realtime-error" style="display:none" role="alert"></div>
       </div>
     </main>
     
@@ -138,6 +226,7 @@
           <p>1. Tapez ou parlez en dialecte tunisien</p>
           <p>2. Dictionnaire ou Groq traduira en français</p>
           <p>3. L'avatar animera les concepts clés</p>
+          <p class="instruction-eye-cursor">Si vous ne pouvez pas utiliser la souris : ouvrez <strong>Paramètres</strong> (icône engrenage) puis cliquez sur <strong>« Ouvrir le curseur piloté par les yeux »</strong> (optionnel).</p>
         </div>
         
         <div class="api-info">
@@ -149,13 +238,34 @@
       
       <div class="copyright">
         <p>© 2024 Traducteur Tunisien-Français • Dictionnaire + Groq</p>
+        <button type="button" class="link-button keyboard-shortcuts-btn" id="keyboardShortcutsBtn" onclick="toggleKeyboardShortcuts()" aria-label="Afficher les raccourcis clavier"><i class="fas fa-keyboard"></i> Raccourcis clavier</button>
       </div>
     </footer>
   </div>
   </div>
 
+  <!-- Panneau Raccourcis clavier -->
+  <div id="keyboardShortcutsPanel" class="keyboard-shortcuts-panel" role="dialog" aria-labelledby="keyboardShortcutsTitle" aria-modal="true" hidden onclick="if (event.target === this) toggleKeyboardShortcuts();">
+    <div class="keyboard-shortcuts-content" onclick="event.stopPropagation();">
+      <h3 id="keyboardShortcutsTitle">Raccourcis clavier</h3>
+      <ul class="keyboard-shortcuts-list">
+        <li><kbd>Échap</kbd> Fermer paramètres, modales ou curseur yeux</li>
+        <li><kbd>Entrée</kbd> (dans la zone de texte) Lancer la traduction</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Entrée</kbd> Lancer la traduction</li>
+        <li><kbd>Alt</kbd>+<kbd>1</kbd> Onglet Traduction</li>
+        <li><kbd>Alt</kbd>+<kbd>2</kbd> Onglet Détection signe (vidéo)</li>
+        <li><kbd>Alt</kbd>+<kbd>3</kbd> Onglet Détection en direct</li>
+        <li><kbd>Alt</kbd>+<kbd>S</kbd> Ouvrir / fermer Paramètres</li>
+        <li><kbd>Alt</kbd>+<kbd>M</kbd> Démarrer le micro (traduction)</li>
+        <li><kbd>←</kbd> <kbd>→</kbd> (sur les onglets) Changer d'onglet</li>
+        <li><kbd>Q</kbd> (curseur yeux actif) Fermer le curseur yeux</li>
+      </ul>
+      <button type="button" class="btn btn-primary" onclick="toggleKeyboardShortcuts()">Fermer</button>
+    </div>
+  </div>
+
   <!-- Bouton Paramètres fixe sur l'écran (toujours visible) -->
-  <button type="button" class="settings-fab" id="settingsFab" onclick="toggleSettingsPanel()" aria-label="Paramètres d'affichage" title="Paramètres">
+  <button type="button" class="settings-fab" id="settingsFab" onclick="toggleSettingsPanel()" aria-label="Paramètres d'affichage" title="Paramètres (Alt+S)">
     <i class="fas fa-cog" aria-hidden="true"></i>
   </button>
   <div class="settings-panel" id="settingsPanel" aria-hidden="true">
@@ -197,15 +307,88 @@
           <option value="125">Très grande</option>
         </select>
       </div>
+      <div class="settings-group settings-group-eye-cursor">
+        <label class="settings-label"><i class="fas fa-eye"></i> Curseur piloté par les yeux</label>
+        <p class="settings-eye-cursor-desc">Si vous ne pouvez pas utiliser la souris, cliquez sur le bouton ci-dessous pour activer le curseur piloté par les yeux (intégré au site). Le regard déplace le curseur, fermer les deux yeux = clic, regarder en haut/bas = scroll. Touche Q pour fermer.</p>
+        <button type="button" class="btn btn-secondary btn-eye-cursor" id="eyeCursorBtn" onclick="startEyeCursor()" aria-label="Ouvrir le curseur piloté par les yeux">
+          <i class="fas fa-eye"></i> Ouvrir le curseur piloté par les yeux
+        </button>
+        <p id="eyeCursorStatus" class="eye-cursor-status" aria-live="polite" hidden></p>
+      </div>
+      <div class="settings-group settings-group-wcag">
+        <label class="settings-label"><i class="fas fa-universal-access"></i> Accessibilité WCAG</label>
+        <p class="settings-wcag-desc">Vérifier que les couleurs respectent le contraste WCAG 2.1 (API WebAIM + calcul local).</p>
+        <button type="button" class="btn btn-secondary btn-wcag-check" id="wcagCheckBtn" onclick="runWcagCheck()">
+          <i class="fas fa-check-double"></i> Vérifier le contraste
+        </button>
+        <div id="wcagCheckResults" class="wcag-results" aria-live="polite" hidden></div>
+        <button type="button" class="btn btn-secondary btn-wcag-apply" id="wcagApplyBtn" onclick="applyWcagColors()" title="Ajuster les couleurs pour respecter WCAG AA">
+          <i class="fas fa-palette"></i> Appliquer couleurs accessibles
+        </button>
+      </div>
     </div>
   </div>
   <div class="settings-backdrop" id="settingsBackdrop" onclick="toggleSettingsPanel()" aria-hidden="true"></div>
 
+  <!-- Question au chargement : voulez-vous le curseur yeux ? (agent + voix Oui/Non) -->
+  <div id="eyeCursorAskOverlay" class="eye-cursor-ask-overlay" role="dialog" aria-labelledby="eyeCursorAskTitle" aria-modal="true">
+    <div class="eye-cursor-ask-modal">
+      <div class="eye-cursor-ask-icon-wrap">
+        <i class="fas fa-eye eye-cursor-ask-icon" aria-hidden="true"></i>
+      </div>
+      <h2 id="eyeCursorAskTitle" class="eye-cursor-ask-title">Voulez-vous activer le curseur piloté par les yeux ?</h2>
+      <p class="eye-cursor-ask-desc">Répondez par la voix : <strong>Oui</strong>, <strong>Ey</strong> / <strong>Eyyy</strong> (tunisien), <strong>Non</strong> ou <strong>Le</strong> (tunisien), ou cliquez ci-dessous.</p>
+      <p id="eyeCursorAskStatus" class="eye-cursor-ask-status" aria-live="polite"></p>
+      <div class="eye-cursor-ask-buttons">
+        <button type="button" class="btn btn-primary" id="eyeCursorAskYes" onclick="eyeCursorAskAnswer(true)">
+          <i class="fas fa-check"></i> Oui
+        </button>
+        <button type="button" class="btn btn-secondary" id="eyeCursorAskNo" onclick="eyeCursorAskAnswer(false)">
+          <i class="fas fa-times"></i> Non
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Curseur piloté par les yeux (intégré au site, pas de script externe) -->
+  <div id="eyeCursorOverlay" class="eye-cursor-overlay" hidden aria-hidden="true">
+    <div class="eye-cursor-overlay-inner" style="pointer-events: none;">
+      <div id="eyeCursorDot" class="eye-cursor-dot" aria-hidden="true"></div>
+    </div>
+    <div id="eyeCursorUiPanel" class="eye-cursor-ui" style="pointer-events: auto;">
+      <div class="eye-cursor-video-wrap">
+        <video id="eyeCursorVideo" class="eye-cursor-video" autoplay playsinline muted></video>
+        <canvas id="eyeCursorCanvas" class="eye-cursor-canvas" aria-hidden="true"></canvas>
+      </div>
+      <div class="eye-cursor-instructions">
+        <p class="eye-cursor-instructions-full"><strong>Pour sortir :</strong> touche <kbd>Q</kbd>, bouton Fermer ci-dessous, ou restez sans bouger 5 s, ou si le visage n’est pas détecté 3 s (fermeture auto).</p>
+        <p id="eyeCursorChrono" class="eye-cursor-chrono" aria-live="polite">—</p>
+        <p id="eyeCursorNoFaceMsg" class="eye-cursor-no-face-msg" aria-live="polite" hidden>Recherche du visage… (redétection)</p>
+        <p><strong>Clic :</strong> fermer les deux yeux</p>
+        <p><strong>Scroll :</strong> regarder en haut ou en bas de l'écran</p>
+      </div>
+      <button type="button" class="btn btn-primary eye-cursor-close-btn" id="eyeCursorCloseBtn" onclick="stopEyeCursor()" aria-label="Fermer le curseur piloté par les yeux">
+        <i class="fas fa-times"></i> Fermer
+      </button>
+    </div>
+  </div>
+
+  <!-- MediaPipe Tasks Vision (Hand + Face Landmarker). Module précharge FaceLandmarker pour le curseur yeux. -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.js" crossorigin="anonymous"></script>
+  <script type="module">
+    try {
+      var m = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs");
+      if (m.FaceLandmarker) window.FaceLandmarker = m.FaceLandmarker;
+      if (m.FilesetResolver) window.FilesetResolver = m.FilesetResolver;
+    } catch (_) {}
+  </script>
   <!-- Three.js 0.128 inclut encore examples/js (GLTFLoader UMD) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <!-- Dictionnaire tunisien → français -->
   <script src="dictionary.js"></script>
+  <!-- WCAG contrast API + local fallback -->
+  <script src="wcag-api.js"></script>
   <!-- Application -->
   <script src="app.js"></script>
 </body>
